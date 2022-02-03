@@ -8,7 +8,7 @@
 -- a low AC50 value in this assay. The information on the dashboard includes: activity of the respective compounds on other targets, information about 
 -- approval and research status, if the respective compounds comply with Lipinski's Rule of Five and the Rule of Three for "Lead-Like" compounds
 
-#Link to Tableau Dashboard: 
+#Link to Tableau Dashboard: https://public.tableau.com/app/profile/dominik7147/viz/LD_Pfalciparum/Dashboard2?publish=yes
 
 #Duration of Project: SQL: 13 h / Tableau: 14 h
 
