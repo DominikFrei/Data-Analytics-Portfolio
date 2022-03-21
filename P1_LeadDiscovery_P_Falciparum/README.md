@@ -1,4 +1,4 @@
-  # Lead Discovery for P. falciparum
+  # Lead Discovery against P. falciparum
   
   Abstract:
   The contents of the ChEMBL Database were explored using MySQL, with the goal of finding promising leads for a drug against 
