@@ -22,9 +22,13 @@ The formating of the text (line breaks) could be improved.
 
 
 Duration:
+
 -MySQL: 14 h
+
 -R: 14 h
+
 -Tableau: 2 h
+
 
 Dashboard: https://public.tableau.com/app/profile/dominik7147/viz/P2_Malaria_Drugs/Dashboard1?publish=yes
 
