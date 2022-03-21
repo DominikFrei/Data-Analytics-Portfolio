@@ -1,0 +1,20 @@
+molregno,who_name,first_approval,mechanism_of_action,level4_description
+72505,tafenoquine,2018,NULL,Aminoquinolines
+573926,artemether,2009,"Ferriprotoporphyrin IX inhibitor","Artemisinin and derivatives, plain"
+51162,mefloquine,1989,NULL,Methanolquinolines
+429737,hydroxychloroquine,1955,NULL,Aminoquinolines
+316347,artesunate,2020,Unknown,"Artemisinin and derivatives, plain"
+2197696,"cycloguanil embonate",NULL,"Dihydrofolate reductase inhibitor",Biguanides
+2080,pyrimethamine,1953,"Dihydrofolate reductase inhibitor",Diaminopyrimidines
+2080,"pyrimethamine, combinations",1953,"Dihydrofolate reductase inhibitor",Diaminopyrimidines
+152728,halofantrine,1992,NULL,"Other antimalarials"
+575613,artemisinin,NULL,Unknown,"Artemisinin and derivatives, plain"
+29097,amodiaquine,1982,NULL,Aminoquinolines
+88317,artemotil,NULL,Unknown,"Artemisinin and derivatives, plain"
+320522,proguanil,2000,NULL,Biguanides
+320522,"proguanil, combinations",2000,NULL,Biguanides
+378315,atovaquone,1992,"Cytochrome b inhibitor","Other agents against amoebiasis and other protozoal diseases"
+255947,quinine,2005,NULL,Methanolquinolines
+10389,primaquine,1952,NULL,Aminoquinolines
+420212,artenimol,NULL,Unknown,"Artemisinin and derivatives, plain"
+6579,chloroquine,1949,NULL,Aminoquinolines
