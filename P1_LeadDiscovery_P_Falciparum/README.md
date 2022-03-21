@@ -1,6 +1,3 @@
-# Portfolio of Data Analytics Projects
-
-1_LD_Pfalciparum
   Abstract: The contents of the ChEMBL Database was explored using MySQL, with the goal of finding promising leads for a medicine against 
   P.falciparum (Malaria pathogen). Then an available qHTS (quantitative high throughput screening) assay (assay_id = 752407) was selected to be investigated more closely.
   Finally certain data were extracted from the database in order to create a dashboard in Tableau, which gives more information on 86 compounds, that showed 
