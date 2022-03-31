@@ -1,0 +1,134 @@
+---
+title: "P3_PharmacovigilanceData_2"
+author: "Dominik Frei"
+date: "24 3 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(rvest)
+setwd("C:/Users/domin/Desktop/Dominik/DS/Projects/P3_PharmacovigilanceData")
+```
+P3 PharmacovigilanceData Part 2
+
+As I was able to set up a data base in which I can import the XML files
+provided by the FDA. I will now download more data (all files for the years
+2021 and 2020), unzip them and write the insert statements for MySQL
+in this R Script.
+
+
+create the URLs to the files.
+The format is: https://fis.fda.gov/content/Exports/faers_xml_YYYYQQ.zip
+```{r}
+years <- c("2021", "2020")
+quarters <- c("Q1", "Q2", "Q3", "Q4")
+URLs <- list()
+ids <- list()
+
+for (i in 1:2) {
+        for (j in 1:4) {
+                id <- paste(years[i], 
+                            quarters[j],
+                            sep = "")
+                ids <- c(id, ids)
+                
+                URL <- paste("https://fis.fda.gov/content/Exports/faers_xml_",
+                             id,
+                             ".zip",
+                             sep = "")
+                URLs <- c(URL, URLs)
+        }
+}
+```
+
+download the files
+```{r}
+for (i in 1:length(URLs)) {
+        dest <- paste("FAERS_XML/files/", 
+                      ids[[i]], 
+                      ".zip", 
+                      sep = "")
+        download.file(url = URLs[[i]],
+                      destfile = dest)
+}
+```
+unzip the files
+```{r}
+for (i in 1:length(URLs)) {
+        file <- paste("FAERS_XML/files/", 
+                      ids[[i]], 
+                      ".zip", 
+                      sep = "")
+        directory <- "FAERS_XML/files/unziped"
+        unzip(zipfile = file, exdir = directory, overwrite = TRUE)
+}
+```
+
+write the insert statements for MySQL:
+
+table: "general":
+LOAD XML LOCAL INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/X_ADRYYQQ.xml'
+INTO TABLE `general`
+ROWS IDENTIFIED BY '<safetyreport>';
+
+table: "drugs":
+LOAD XML LOCAL INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/X_ADRYYQQ.xml'
+INTO TABLE drugs
+ROWS IDENTIFIED BY '<drug>';
+
+table: "reactions":
+LOAD XML LOCAL INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/X_ADRYYQQ.xml'
+INTO TABLE reactions
+ROWS IDENTIFIED BY '<reaction>';
+
+```{r}
+#define necessary names for loop
+table_names <- c("`general`", "drugs", "reactions")
+identified_by <- c("'<safetyreport>'", "'<drug>'", "'<reaction>'")
+file_numbers <- c("1", "2", "3")
+years_short <- c("20", "21")
+#quarters has already been defined
+
+statements <- list()
+outp <- list()
+
+for (t in 1:3) {
+        table <- table_names[[t]]
+        identifyer <- identified_by[[t]]
+        for (y in 1:2) {
+                year <- years_short[[y]]
+                for (f in 1:3) {
+                        file <- file_numbers[[f]]
+                        for (q in 1:4) {
+                                quart <- quarters[[q]]
+                                filename <- paste(file, "_ADR", year, quart, ".xml", sep = "")
+                                statements <- c(statements, paste("LOAD XML LOCAL INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/",
+                                                                  filename, 
+                                                                  "'\n",
+                                                                  "INTO TABLE ",
+                                                                  table,
+                                                                  "\nROWS IDENTIFIED BY ",
+                                                                  identifyer,
+                                                                  ";\n\n",
+                                                                  sep = ""))
+                                                                  
+                                
+                        }
+                                
+                }
+        }
+        
+}
+
+for (i in 1:length(statements)) {
+        cat(statements[[i]])
+}
+```
+
+This output was copied into the SQL Script (P3_PharmacovigilanceData_2.sql) and
+run sucessfully.
