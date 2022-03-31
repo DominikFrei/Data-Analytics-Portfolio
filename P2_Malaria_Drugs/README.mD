@@ -1,6 +1,4 @@
-# Malaria Drugs
-
-#P2 Malaria Drugs
+# P2 Malaria Drugs
 ## Abstract
 The ChEMBL database was explored using MySQL to find compounds known to act against Plasmodium species (cause malaria). A number of compounds where selected (they where indexed with: MeSH (Medical Subject Heading) = Malaria; Level 4 ATC Code = Antimalarial) and some information was exported from the database (Table: "Known Malaria Drugs").
 The Smiles codes for these compounds where exported as well and an image of the chemical structure was created using R (Table: "Chemical Structure"; R Script: "Smiles_to_Structure.R")
