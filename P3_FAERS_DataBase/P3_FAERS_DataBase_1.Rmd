@@ -1,0 +1,562 @@
+---
+title: "P3 FAERS Database"
+author: "Dominik Frei"
+date: "21 3 2022"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment = '', fig.width = 6, fig.height = 6, eval = FALSE)
+```
+
+# Abstract
+
+The aim of this project was to import Adverse Event Data published by the FDA 
+(here: https://fis.fda.gov/extensions/FPD-QDE-FAERS/FPD-QDE-FAERS.html) in the 
+form of XML files into a MySQL Database.
+In Part 1 I tried to import the XML files into R, extract the data and save it
+as .csv files. The reason for this was, that the MySQL workbench supports
+import of .csv files via the "Table Data Import Wizard", which does not require
+to write any statements to set up the tables and import the data.
+I wrote a function in R that produces a csv file out of an XML (tested on
+on a small XML file, containing only ca. 30 cases).
+As there where many problems with using the "Table Data Import Wizard" 
+(e.g. it chooses the wrong datatype etc.) I decided to write statements to
+create the tables and import the data.
+I was able to set up everything properly. However, when I tested my R function
+on one of the "big XML" (one out of three that are published each quarter)
+I realized, that this takes way too long and abandonned this strategy.
+
+In part two I improved the statements for setting up the database and
+imported the XML files directly into MySQL.
+
+Resources: I used this blogbost as reference to treat nested XML files: 
+https://medium.com/geekculture/reading-xml-files-in-r-3122c3a2a8d9
+
+What I learned:
+- extracting data from nested XML files using xml2 package
+- data manipulation using dplyr package
+- setting up and importing data into MySQL database
+
+Duration:
+- MySQL: 13 h
+- R: 15 h
+- Other (writing/correcting text): 2 h
+
+# Part 1
+
+Libraries and working directory
+```{r warning = FALSE, eval = TRUE, message = FALSE}
+
+library(xml2)
+library(tidyverse)
+
+setwd("C:/Users/domin/Desktop/Dominik/DS/Projects/P3_FAERS_DataBase")
+```
+Read one of the xml files and convert to list
+```{r}
+ADR21Q3_1 <- read_xml("FAERS_XML/XML/1_ADR21Q3.xml") %>% as_list()
+```
+This took very long, therefore I interrupted the process and created a smaller
+xml file by hand: I copied the data for the first three case reports in a new 
+file and added </ichicsr> at the end.
+
+Try again with this file
+```{r eval = TRUE}
+test <- read_xml("FAERS_XML/XML/test.xml") %>% as_list()
+```
+it worked
+
+# Converting the XML File to .csv: First try
+
+Unnest and convert to tibble
+```{r eval = TRUE}
+test_tb <- as_tibble(test) %>% unnest_longer('ichicsr')
+head(test_tb)
+```
+We get a tibble with two columns, where the first 8 rows are metadata
+followed by 21 rows of data per report
+
+Before we go on we have to transform the data so that every record is a row 
+and the ichicsr_id are the column names.
+Remove the metadata
+```{r eval = TRUE}
+test_tb <- test_tb[9:74,]
+head(test_tb)
+```
+Add a column with the report id, to make the records distinct from each other.
+
+The first value in a record is the "safetyreportversion".
+```{r eval = TRUE}
+report_id <- test_tb[,"ichicsr_id"]
+colnames(report_id) <- c("report_id")
+ids <- test_tb[test_tb$ichicsr_id == "safetyreportid","ichicsr"] %>% unlist()
+
+for (i in 1:nrow(test_tb)) {
+        report_id[i,] <- ids[[(sum(i >= which(test_tb$ichicsr_id == "safetyreportversion")))]]
+}
+
+test_tb <- cbind(test_tb, report_id)
+head(test_tb)
+```
+
+Pivot the data to get one row per record, use ichicsr as colnames
+```{r eval = TRUE}
+test_tb_wider <- pivot_wider(test_tb,
+                             names_from = "ichicsr_id",
+                             values_from = "ichicsr",
+                             values_fill = NA)
+head(test_tb_wider[,1:5])
+```
+
+Now we have to unlist all the remaining nested elements (colums 18:22) 
+(later we have to automate finding the still nested columns)
+```{r eval = TRUE, message = FALSE}
+test_df <- test_tb_wider
+
+for (i in 1:5) {
+        test_df <- test_df %>% unnest_wider(colnames(test_tb_wider[,(17+i)]))
+}
+```
+There are more nested layers for drugs and reactions
+
+We will separate those out and treat them separately
+```{r eval = TRUE}
+for (i in 1:ncol(test_df)) {
+        drugs <- test_df %>% colnames() %>% grep(pattern = "drug") %>% test_df[,.]
+}
+
+for (i in 1:ncol(test_df)) {
+        reactions <- test_df %>% colnames() %>% grep(pattern = "reaction") %>% test_df[,.]
+}
+```
+
+Now we will add a column with the case number to give them an id
+```{r eval = TRUE}
+drugs <- cbind(report_id = test_df$report_id, drugs)
+reactions <- cbind(report_id = test_df$report_id, reactions)
+```
+
+Pivot the data in order to make every drug/reaction a record
+```{r eval = TRUE}
+drugs_longer <- drugs %>% pivot_longer(cols = 2:ncol(drugs))
+reactions_longer <- reactions %>% pivot_longer(cols = 2:ncol(reactions))
+```
+
+Delete the records containing no data
+```{r eval = TRUE}
+drugs_longer <- drugs_longer %>% filter(value != "NULL")
+reactions_longer <- reactions_longer %>% filter(value != "NULL")
+```
+
+Add an index for each drug/reaction
+```{r eval = TRUE}
+#drugs
+drug_index <- list()
+drugs_inds <- drugs_longer %>% group_by(report_id) %>% count()
+
+for (i in 1:3) {
+        n_rows <- drugs_inds[i,"n"] %>% as.integer()
+        for (j in 1:n_rows) {
+                drug_index <- append(drug_index, j)
+        }
+}
+
+drugs_longer_ind <- drugs_longer %>% select(c("report_id", "value")) %>% cbind(., index = unlist(drug_index)) %>% select(report_id, index, value)
+
+#reactions
+reactions_index <- list()
+reactions_inds <- reactions_longer %>% group_by(report_id) %>% count()
+
+for (i in 1:3) {
+        n_rows <- reactions_inds[i,"n"] %>% as.integer()
+        for (j in 1:n_rows) {
+                reactions_index <- append(reactions_index, j)
+        }
+}
+
+reactions_longer_ind <- reactions_longer %>% select(c("report_id", "value")) %>% cbind(., index = unlist(reactions_index)) %>% select(report_id, index, value)
+```
+
+Unnest the value column (and expand the results to new columns)
+Then unnest the result, to have the real data; 
+Unnest "activesubstance" column (for drugs data)
+```{r eval = TRUE}
+#drugs
+drugs_unnest <- drugs_longer_ind %>% unnest_wider(value)
+drugs_unnest <- unnest(drugs_unnest, cols = colnames(drugs_unnest))
+drugs_unnest <- unnest(drugs_unnest, cols = "activesubstance")
+
+#reactions
+reactions_unnest <- reactions_longer_ind %>% unnest_wider(value)
+reactions_unnest <- unnest(reactions_unnest, cols = colnames(reactions_unnest))
+
+head(drugs_unnest)
+```
+
+Clean up the remaining data (remove drug and reaction columns)
+```{r}
+exclude_dr <- test_df %>% colnames() %>% grep(pattern = 'drug|reaction') %>% test_df[,.] %>% colnames()
+rest <- test_df %>% select(!exclude_dr)
+```
+
+Unnest the remaining nested variables (start with unnest_wider) for the variable
+that has another nested layer (summary)
+```{r}
+rest_unnest <- rest %>% unnest_wider(col = "summary") %>% unnest()
+```
+These dataframes (drugs_unnest, reactions_unnest, rest_unnest) would now be ready
+to be exported as csv and imported to MySQL.
+
+# Refinement
+
+Now we will try to automate all of it, put it into a function and try it on 
+a bigger number of cases.
+I created a bigger file for testing (includes 50'000 lines of text) called test2.xml
+```{r}
+system.time(raw_data <- read_xml("FAERS_XML/XML/test2.xml") %>% as_list())
+```
+Import was relatively quick (8.22 seconds). raw_data contains 315 case reports.
+One of three files containing the case reports for one quarter contains 21 Mio. lines
+How many cases might the whole file contain?
+```{r eval = TRUE}
+#around how many more cases are contained in one file
+21000000/50000
+#around how many cases are contained in one file
+420*315
+#how long might the import take of such a file in minutes
+8.22*420/60
+```
+This is doable. I could maybe import data for 1 year. That would take around 9 h.
+
+Above I had mistakenly used unlist_longer. Now I used unlist_wider, which 
+makes the transformations, I did right after that, obsolete. I also
+remove the metadata right here.
+```{r}
+raw_tb <- as_tibble(raw_data) %>% .[-c(1),"ichicsr"] %>% unnest_wider('ichicsr')
+```
+
+Now use unnest_wide on the columns that contain further layers of nesting.
+```{r error = FALSE, echo=FALSE, results="hide"}
+nested_cols <- c("reportduplicate", "primarysource", "sender", "receiver", "patient")
+general <- raw_tb
+
+for (i in 1:5) {
+        general <- general %>% unnest_wider(col = nested_cols[i])
+}
+```
+Note: this creates many columns and could become a problem with more data.
+
+Remove the drug and reaction columns from general
+```{r}
+to_exclude <- general %>% colnames() %>% grep(pattern = 'drug|reaction') %>% general[,.] %>% colnames()
+general_clean <- general %>% select(!to_exclude)
+```
+Unnest everything
+```{r}
+general_unnest <- general_clean %>% unnest_wider(col = "summary") %>% unnest()
+```
+Now to the drugs and reactions tables (not many changes to how it was done the first time)
+```{r}
+for (i in 1:ncol(general)) {
+        drugs <- general %>% colnames() %>% grep(pattern = "drug") %>% general[,.]
+}
+
+for (i in 1:ncol(general)) {
+        reactions <- general %>% colnames() %>% grep(pattern = "reaction") %>% general[,.]
+}
+
+#add the report id
+drugs <- cbind(report_id = general_unnest[,"safetyreportid"], drugs)
+reactions <- cbind(report_id = general_unnest[,"safetyreportid"], reactions)
+#pivot
+drugs_longer <- drugs %>% pivot_longer(cols = 2:ncol(drugs))
+reactions_longer <- reactions %>% pivot_longer(cols = 2:ncol(reactions))
+#delete
+drugs_longer <- drugs_longer %>% filter(value != "NULL")
+reactions_longer <- reactions_longer %>% filter(value != "NULL")
+```
+
+To assign an index for each record I now used apply() instead of a for loop.
+```{r}
+#drugs
+indices <- function(length) {
+        1:length
+}
+
+drugs_inds <- drugs_longer %>% group_by(safetyreportid) %>% count()
+drug_index <- drugs_inds %>% ungroup() %>% select(n) %>% print() %>% apply(., 1, indices) %>% print()
+drug_index <- drug_index %>% unlist()
+
+drugs_longer_ind <- drugs_longer %>% cbind(., index = drug_index) %>% select(safetyreportid, index, value)
+
+#reactions
+reactions_inds <- reactions_longer %>% group_by(safetyreportid) %>% count()
+reactions_index <- reactions_inds %>% ungroup() %>% select(n) %>% print() %>% apply(., 1, indices) %>% print()
+reactions_index <- reactions_index %>% unlist()
+
+reactions_longer_ind <- reactions_longer %>% cbind(., index = reactions_index) %>% select(safetyreportid, index, value)
+```
+
+Unnest everything (same as above); paste all drugrecurrence fields into one
+in order to avoid all the extra columns
+```{r}
+#drugs
+drugs_unnest <- drugs_longer_ind %>% unnest_wider(value)
+drugs_unnest <- unnest(drugs_unnest, cols = colnames(drugs_unnest))
+drugs_unnest <- unnest(drugs_unnest, cols = "activesubstance")
+
+#paste all drugrecurrence fields into one
+selection <- drugs_unnest %>% colnames() %>% grep(pattern = 'drugrecurrence') %>% drugs_unnest[,.] %>% colnames()
+selection_unnest <- selection %>% drugs_unnest[,.] %>% unnest(keep_empty = TRUE)
+drugrecurrence <- selection_unnest %>% apply(., MARGIN = 1, FUN = paste, collapse = "; ") %>% print()
+drugrecurrence[drugrecurrence == "NULL; NULL; NULL; NULL; NULL; NULL; NULL; NULL; NULL; NULL; NULL"] <- "NULL"
+drugs_unnest <- drugs_unnest %>% select(!selection) %>% cbind(.,drugrecurrence)
+
+#reactions
+reactions_unnest <- reactions_longer_ind %>% unnest_wider(value)
+reactions_unnest <- unnest(reactions_unnest, cols = colnames(reactions_unnest))
+```
+Now write csv files
+```{r}
+general_unnest <- apply(general_unnest,2,as.character)
+general_unnest %>% write.csv(.,file = "test2_general.csv")
+
+drugs_unnest <- apply(drugs_unnest,2,as.character)
+drugs_unnest %>% write.csv(.,file = "test2_drugs.csv")
+
+reactions_unnest <- apply(reactions_unnest,2,as.character)
+reactions_unnest %>% write.csv(.,file = "test2_reactions.csv")
+```
+
+# Write function
+
+Now make one big function out of this including everything except the reading
+and saving as list.
+```{r}
+E2b_xml_csv <- function(xml_list, name) {
+        raw_tb <- as_tibble(xml_list) %>% .[-c(1),"ichicsr"] %>% unnest_wider('ichicsr')
+        
+        nested_cols <- c("reportduplicate", "primarysource", "sender", "receiver", "patient")
+        general <- raw_tb
+
+        for (i in 1:5) {
+                general <- general %>% unnest_wider(col = nested_cols[i])
+        }
+        
+        to_exclude <- general %>% colnames() %>% grep(pattern = 'drug|reaction') %>% general[,.] %>% colnames()
+        general_clean <- general %>% select(!to_exclude)
+
+        general_unnest <- general_clean %>% unnest_wider(col = "summary") %>% unnest()
+        
+        for (i in 1:ncol(general)) {
+                drugs <- general %>% colnames() %>% grep(pattern = "drug") %>% general[,.]
+        }
+
+        for (i in 1:ncol(general)) {
+                reactions <- general %>% colnames() %>% grep(pattern = "reaction") %>% general[,.]
+        }
+
+        #add the report id
+        drugs <- cbind(report_id = general_unnest[,"safetyreportid"], drugs)
+        reactions <- cbind(report_id = general_unnest[,"safetyreportid"], reactions)
+        #pivot
+        drugs_longer <- drugs %>% pivot_longer(cols = 2:ncol(drugs))
+        reactions_longer <- reactions %>% pivot_longer(cols = 2:ncol(reactions))
+        #delete
+        drugs_longer <- drugs_longer %>% filter(value != "NULL")
+        reactions_longer <- reactions_longer %>% filter(value != "NULL")
+        
+        #drugs
+        indices <- function(length) {
+                1:length
+        }
+
+        drugs_inds <- drugs_longer %>% group_by(safetyreportid) %>% count()
+        drug_index <- drugs_inds %>% ungroup() %>% select(n) %>% print() %>% apply(., 1, indices) %>% print()
+        drug_index <- drug_index %>% unlist()
+
+        drugs_longer_ind <- drugs_longer %>% cbind(., index = drug_index) %>% select(safetyreportid, index, value)
+
+        #reactions
+        reactions_inds <- reactions_longer %>% group_by(safetyreportid) %>% count()
+        reactions_index <- reactions_inds %>% ungroup() %>% select(n) %>% print() %>% apply(., 1, indices) %>% print()
+        reactions_index <- reactions_index %>% unlist()
+
+        reactions_longer_ind <- reactions_longer %>% cbind(., index = reactions_index) %>% select(safetyreportid, index, value)
+        
+        #unnest everything
+        #drugs
+        drugs_unnest <- drugs_longer_ind %>% unnest_wider(value)
+        drugs_unnest <- unnest(drugs_unnest, cols = colnames(drugs_unnest))
+        drugs_unnest <- unnest(drugs_unnest, cols = "activesubstance")
+        
+        #paste all drugrecurrence fields into one
+        selection <- drugs_unnest %>% colnames() %>% grep(pattern = 'drugrecurrence') %>% drugs_unnest[,.] %>% colnames()
+        selection_unnest <- selection %>% drugs_unnest[,.] %>% unnest(keep_empty = TRUE)
+        drugrecurrence <- selection_unnest %>% apply(., MARGIN = 1, FUN = paste, collapse = ", ") %>% print()
+        drugrecurrence[drugrecurrence == "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL"] <- "NULL"
+        drugs_unnest <- drugs_unnest %>% select(!selection) %>% cbind(.,drugrecurrence)
+
+        #reactions
+        reactions_unnest <- reactions_longer_ind %>% unnest_wider(value)
+        reactions_unnest <- unnest(reactions_unnest, cols = colnames(reactions_unnest))
+        
+        #write csv
+        general_unnest <- apply(general_unnest,2,as.character)
+        file_name <- paste(name, "_general.csv", sep = "")
+        general_unnest %>% write.table(.,file = file_name, row.names = FALSE, quote = FALSE, sep = ";")
+
+        drugs_unnest <- apply(drugs_unnest,2,as.character)
+        file_name <- paste(name, "_drugs.csv", sep = "")
+        drugs_unnest %>% write.table(.,file = file_name, row.names = FALSE, quote = FALSE, sep = ";")
+
+        reactions_unnest <- apply(reactions_unnest,2,as.character)
+        file_name <- paste(name, "_reactions.csv", sep = "")
+        reactions_unnest %>% write.table(.,file = file_name, row.names = FALSE, quote = FALSE, sep = ";")
+}
+```
+What is still lacking here is to replace all ";" signs (used as separator in 
+the csv file) in any of the data, to avoid problems with reading it into SQL.
+
+Test it:
+Read in data again
+```{r}
+system.time(raw_data <- read_xml("FAERS_XML/XML/test2.xml") %>% as_list())
+```
+
+Run function
+```{r}
+system.time(E2b_xml_csv(raw_data, "test2"))
+```
+It took 16 seconds
+
+How long will it take to treat the big file?
+```{r eval = TRUE}
+16*420/60
+```
+at least 2 h to treat the big file
+
+# Create lookup tables for database
+
+
+We also have to build the lookup tables for the database, as some of the data
+is coded.
+
+I will include the following variables:
+
+general:\
+-reporttype\
+-serious\
+-qualification\
+-patientonsetageunit\
+-patientagegroup\\
+
+
+drugs:\
+-drugcharacterization\
+-drugadministrationroute: big list => done via Excel\
+-actiondrug\
+-drugstructuredosageunit => done via Excel\
+-drugintervaldosagedefinition => done via Excel\\
+
+reactions:\
+-reactionoutcome\
+
+The information for this is available in the document "XML_NTS"
+provided by the FDA and the ICH_ICSR_Specification_V2-3
+
+reporttype
+```{r}
+lu_reporttype <- data.frame(reporttype = c(1,2,3,4), reporttype_def = c("Spontaneous", "Report from Study", "Other", "Not available to sender (unknown)"))
+```
+
+serious
+```{r}
+lu_serious <- data.frame(serious = c(1,2), serious_def = c("yes", "no"))
+```
+
+qualification
+```{r}
+lu_qualification <- data.frame(qualification = c(1,2,3,4,5), 
+                               qualification_def = c("Physician", "Pharmacist", "Other Health Professional", "Lawyer", "Consumer or non-health professional"))
+```
+
+patientonsetageunit
+```{r}
+lu_patientonsetageunit <- data.frame(patientonsetageunit = c(800,801,802,803,804,805), 
+                                patientonsetageunit_def = c("Decade", "Year", "Month", "Week", "Day", "Hour"))
+```
+
+patientagegroup
+```{r}
+lu_patientagegroup <- data.frame(patientagegroup = c(1,2,3,4,5,6), 
+                                patientagegroup_def = c("Neonate", "Infant", "Child", "Adolescent", "Adult", "Elderly"))
+```
+
+drugcharacterization
+```{r}
+lu_drugcharacterization <- data.frame(drugcharacterization = c(1,2,3), drugcharacterization_def = c("suspect", "concomitant", "interacting"))
+```
+
+actiondrug
+```{r}
+lu_actiondrug <- data.frame(actiondrug = c(1,2,3,4,5,6), 
+                                actiondrug_def = c("Drug Withdrawn", "Dose reduced", "Dose Increased", "Dose not changed", "Unknown", "Not applicable"))                                       
+```
+
+reactionoutcome
+```{r}
+lu_reactionoutcome <- data.frame(reactionoutcome = c(1,2,3,4,5,6), 
+                                reactionoutcome_def = c("recovered/resolved", "recovering/resolving", "not recovered/not resolved", "recovered/resolved with sequelae",  "fatal", "unknown"))
+```
+
+write csv files
+```{r eval = FALSE}
+lu_table_names <- c("lu_reporttype", "lu_serious", "lu_qualification", "lu_patientonsetageunit", "lu_patientagegroup", "lu_drugcharacterization", "lu_actiondrug", "lu_reactionoutcome")
+
+for (i in 1:8) {
+        filename <- paste("lu_tables/", lu_table_names[i], ".csv", sep = "")
+        print(filename)
+        write.csv(x = mget(lu_table_names[i]), file = filename, row.names = FALSE, col.names = TRUE, quote = FALSE)
+}
+```
+
+# Test on big file
+
+Try reading in big file
+```{r}
+system.time(ADR21Q3_1 <- read_xml("FAERS_XML/XML/1_ADR21Q3.xml") %>% as_list())
+```
+it took 2433 seconds
+```{r eval = TRUE}
+2433/60
+```
+= ca. 40 min
+
+Save the created list (so I dont have to have it in memory all the time)
+```{r}
+saveRDS(ADR21Q3_1, file = "ADR_lists/ADR21Q3_1")
+#remove it from workspace
+rm(ADR21Q3_1)
+#load it in again
+ADR21Q3_1 <- readRDS(file = "ADR_lists/ADR21Q3_1")
+```
+
+Now treat the big file
+```{r}
+system.time(E2b_xml_csv(ADR21Q3_1, "ADR21Q3_1"))
+```
+I interrupted the process after ca 14 h. Above we had calculated that it should
+take more or less 2 h, with the assumption that it would scale linearly!
+So it seems to not do that.
+
+Also I don't really know how much of the total process had been done after 14 h.
+I could have put print statements into the function, 
+after certain steps had been accomplished.
+
+I wrote a SQL Script to create a data model and insert data from 
+the output of this script (See SQL Script "P3_PharmacovigilanceData_1.sql").
+
+As a transformation of more data did not seem feasible I abondonned this route
+and try to load the untreated XML files into MySQL.
