@@ -9,10 +9,10 @@ Resources: I used this blogbost as reference to treat nested XML files: https://
 
 What I learned: - extracting data from nested XML files using xml2 package - data manipulation using dplyr package - setting up and importing data into MySQL database
 
-Duration:\ 
-- MySQL: 13 h\ 
-- R: 15 h\ 
-- Other (writing/correcting text): 3 h\ 
+Duration:
+- MySQL: 13 h
+- R: 15 h 
+- Other (writing/correcting text): 3 h
 
-To view all teh written code directly in your browser use the link below:
+To view all teh written code directly in your browser use the link below: 
 https://rawgit.com/DominikFrei/Data-Analytics-Portfolio/main/P3_FAERS_DataBase/P3_FAERS_DataBase_combined.html
