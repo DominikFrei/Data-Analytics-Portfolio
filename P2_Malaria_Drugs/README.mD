@@ -11,10 +11,15 @@ At last the Labels (XML files) for products on the market containing the selecte
 A dashboard with all of the exports was created in Tableau.
 
 What I learned:
+
 -Importing tables into MySQL
+
 -Data manipulation in MySQL
+
 -Basics in webscraping using R (rvest)
+
 -getting information from XML (xml2)
+
 
 Possiblities for improvement:
 The parsing of the XML could be improved. As some of the labels had a somewhat different layout, my function did not work perfectly on all of them.
