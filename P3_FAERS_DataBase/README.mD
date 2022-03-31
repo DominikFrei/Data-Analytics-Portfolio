@@ -14,5 +14,6 @@ Duration:
 - R: 15 h 
 - Other (writing/correcting text): 3 h
 
-To view all teh written code directly in your browser use the link below: 
+To view all teh written code directly in your browser use the link below:
+
 https://rawgit.com/DominikFrei/Data-Analytics-Portfolio/main/P3_FAERS_DataBase/P3_FAERS_DataBase_combined.html
