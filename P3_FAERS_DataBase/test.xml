@@ -1,0 +1,583 @@
+<?xml version="1.0"?>
+<ichicsr lang="en">
+  <ichicsrmessageheader>
+    <messagetype>ICSR</messagetype>
+    <messageformatversion>2.1</messageformatversion>
+    <messageformatrelease>1.0</messageformatrelease>
+    <messagenumb>2021-10</messagenumb>
+    <messagesenderidentifier>FDA CDER</messagesenderidentifier>
+    <messagereceiveridentifier>Public Use</messagereceiveridentifier>
+    <messagedateformat>204</messagedateformat>
+    <messagedate>20211019081033</messagedate>
+  </ichicsrmessageheader>
+  <safetyreport>
+    <safetyreportversion>3</safetyreportversion>
+    <safetyreportid>10097965</safetyreportid>
+    <primarysourcecountry>DE</primarysourcecountry>
+    <occurcountry>DE</occurcountry>
+    <transmissiondateformat>102</transmissiondateformat>
+    <transmissiondate>20211014</transmissiondate>
+    <reporttype>3</reporttype>
+    <serious>1</serious>
+    <seriousnessother>1</seriousnessother>
+    <receivedateformat>102</receivedateformat>
+    <receivedate>20140423</receivedate>
+    <receiptdateformat>102</receiptdateformat>
+    <receiptdate>20210709</receiptdate>
+    <fulfillexpeditecriteria>1</fulfillexpeditecriteria>
+    <companynumb>DE-ROCHE-1385998</companynumb>
+    <duplicate>1</duplicate>
+    <reportduplicate>
+      <duplicatesource>ROCHE</duplicatesource>
+      <duplicatenumb>DE-ROCHE-1385998</duplicatenumb>
+    </reportduplicate>
+    <primarysource>
+      <reportercountry>DE</reportercountry>
+      <qualification>1</qualification>
+    </primarysource>
+    <sender>
+      <sendertype>2</sendertype>
+      <senderorganization>FDA-Public Use </senderorganization>
+    </sender>
+    <receiver>
+      <receivertype>6</receivertype>
+      <receiverorganization>FDA</receiverorganization>
+    </receiver>
+    <patient>
+      <patientonsetage>62</patientonsetage>
+      <patientonsetageunit>801</patientonsetageunit>
+      <patientsex>2</patientsex>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Retinal vein occlusion</reactionmeddrapt>
+        <reactionoutcome>3</reactionoutcome>
+      </reaction>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>RIBAVIRIN.</medicinalproduct>
+        <drugbatchnumb> ASKED BUT UNKNOWN</drugbatchnumb>
+        <drugauthorizationnumb>021511</drugauthorizationnumb>
+        <drugadministrationroute>065</drugadministrationroute>
+        <drugindication>CHRONIC HEPATITIS C</drugindication>
+        <actiondrug>5</actiondrug>
+        <drugadditional>3</drugadditional>
+        <activesubstance>
+          <activesubstancename>RIBAVIRIN</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>PEGINTERFERON ALFA?2A.</medicinalproduct>
+        <drugbatchnumb> ASKED BUT UNKNOWN</drugbatchnumb>
+        <drugauthorizationnumb>103964</drugauthorizationnumb>
+        <drugstructuredosagenumb>180</drugstructuredosagenumb>
+        <drugstructuredosageunit>004</drugstructuredosageunit>
+        <drugadministrationroute>065</drugadministrationroute>
+        <drugindication>CHRONIC HEPATITIS C</drugindication>
+        <drugstartdateformat>102</drugstartdateformat>
+        <drugstartdate>20120127</drugstartdate>
+        <actiondrug>5</actiondrug>
+        <drugadditional>3</drugadditional>
+        <activesubstance>
+          <activesubstancename>PEGINTERFERON ALFA-2A</activesubstancename>
+        </activesubstance>
+      </drug>
+    </patient>
+  </safetyreport>
+  <safetyreport>
+    <safetyreportversion>19</safetyreportversion>
+    <safetyreportid>10287507</safetyreportid>
+    <primarysourcecountry>US</primarysourcecountry>
+    <occurcountry>US</occurcountry>
+    <transmissiondateformat>102</transmissiondateformat>
+    <transmissiondate>20211014</transmissiondate>
+    <reporttype>1</reporttype>
+    <serious>1</serious>
+    <seriousnesshospitalization>1</seriousnesshospitalization>
+    <seriousnessother>1</seriousnessother>
+    <receivedateformat>102</receivedateformat>
+    <receivedate>20140709</receivedate>
+    <receiptdateformat>102</receiptdateformat>
+    <receiptdate>20210722</receiptdate>
+    <fulfillexpeditecriteria>1</fulfillexpeditecriteria>
+    <companynumb>US-PFIZER INC-2014190148</companynumb>
+    <duplicate>1</duplicate>
+    <reportduplicate>
+      <duplicatesource>PFIZER</duplicatesource>
+      <duplicatenumb>US-PFIZER INC-2014190148</duplicatenumb>
+    </reportduplicate>
+    <primarysource>
+      <reportercountry>US</reportercountry>
+      <qualification>1</qualification>
+    </primarysource>
+    <sender>
+      <sendertype>2</sendertype>
+      <senderorganization>FDA-Public Use </senderorganization>
+    </sender>
+    <receiver>
+      <receivertype>6</receivertype>
+      <receiverorganization>FDA</receiverorganization>
+    </receiver>
+    <patient>
+      <patientonsetage>85</patientonsetage>
+      <patientonsetageunit>801</patientonsetageunit>
+      <patientweight>71</patientweight>
+      <patientsex>2</patientsex>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Amnesia</reactionmeddrapt>
+        <reactionoutcome>6</reactionoutcome>
+      </reaction>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Off label use</reactionmeddrapt>
+        <reactionoutcome>6</reactionoutcome>
+      </reaction>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Femur fracture</reactionmeddrapt>
+        <reactionoutcome>6</reactionoutcome>
+      </reaction>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Cerebrovascular accident</reactionmeddrapt>
+        <reactionoutcome>6</reactionoutcome>
+      </reaction>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Drug ineffective for unapproved indication</reactionmeddrapt>
+        <reactionoutcome>6</reactionoutcome>
+      </reaction>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Speech disorder</reactionmeddrapt>
+        <reactionoutcome>3</reactionoutcome>
+      </reaction>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Hypertension</reactionmeddrapt>
+        <reactionoutcome>6</reactionoutcome>
+      </reaction>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>CALAN SR</medicinalproduct>
+        <drugbatchnumb> C140279</drugbatchnumb>
+        <drugauthorizationnumb>019152</drugauthorizationnumb>
+        <drugstructuredosagenumb>240</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosagetext>240 MG, 1X/DAY</drugdosagetext>
+        <drugdosageform>MODIFIED-RELEASE TABLET</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <drugindication>HEART RATE INCREASED</drugindication>
+        <drugenddateformat>602</drugenddateformat>
+        <drugenddate>2014</drugenddate>
+        <actiondrug>3</actiondrug>
+        <activesubstance>
+          <activesubstancename>VERAPAMIL HYDROCHLORIDE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>CALAN SR</medicinalproduct>
+        <drugauthorizationnumb>019152</drugauthorizationnumb>
+        <drugstructuredosagenumb>120</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugseparatedosagenumb>3</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosagetext>120 MG, 3X/DAY</drugdosagetext>
+        <drugdosageform>MODIFIED-RELEASE TABLET</drugdosageform>
+        <actiondrug>3</actiondrug>
+        <activesubstance>
+          <activesubstancename>VERAPAMIL HYDROCHLORIDE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>SYNTHROID</medicinalproduct>
+        <drugstructuredosagenumb>75</drugstructuredosagenumb>
+        <drugstructuredosageunit>004</drugstructuredosageunit>
+        <drugdosagetext>75 UG, DAILY</drugdosagetext>
+        <drugdosageform>TABLET</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <drugindication>THYROID DISORDER</drugindication>
+        <activesubstance>
+          <activesubstancename>LEVOTHYROXINE SODIUM</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>CALAN SR</medicinalproduct>
+        <drugauthorizationnumb>019152</drugauthorizationnumb>
+        <drugstructuredosagenumb>120</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugseparatedosagenumb>3</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosagetext>120 MG, 3X/DAY</drugdosagetext>
+        <drugdosageform>MODIFIED-RELEASE TABLET</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <actiondrug>3</actiondrug>
+        <activesubstance>
+          <activesubstancename>VERAPAMIL HYDROCHLORIDE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>CALAN SR</medicinalproduct>
+        <drugauthorizationnumb>019152</drugauthorizationnumb>
+        <drugstructuredosagenumb>120</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugdosagetext>120MG SR ALL 3 AT THE SAME TIME AT NIGHT</drugdosagetext>
+        <drugdosageform>MODIFIED-RELEASE TABLET</drugdosageform>
+        <actiondrug>3</actiondrug>
+        <activesubstance>
+          <activesubstancename>VERAPAMIL HYDROCHLORIDE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>PRESERVISION</medicinalproduct>
+        <drugdosagetext>UNK</drugdosagetext>
+        <drugdosageform>TABLET</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <activesubstance>
+          <activesubstancename>MINERALS\VITAMINS</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>CALAN SR</medicinalproduct>
+        <drugauthorizationnumb>019152</drugauthorizationnumb>
+        <drugstructuredosagenumb>360</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugdosagetext>360 MG, DAILY</drugdosagetext>
+        <drugdosageform>MODIFIED-RELEASE TABLET</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <drugindication>PROPHYLAXIS</drugindication>
+        <actiondrug>3</actiondrug>
+        <activesubstance>
+          <activesubstancename>VERAPAMIL HYDROCHLORIDE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>CALAN SR</medicinalproduct>
+        <drugauthorizationnumb>019152</drugauthorizationnumb>
+        <drugstructuredosagenumb>120</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugseparatedosagenumb>3</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosagetext>120 MG, 3X/DAY</drugdosagetext>
+        <drugdosageform>MODIFIED-RELEASE TABLET</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <actiondrug>3</actiondrug>
+        <activesubstance>
+          <activesubstancename>VERAPAMIL HYDROCHLORIDE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>ELIQUIS</medicinalproduct>
+        <drugstructuredosagenumb>5</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugseparatedosagenumb>2</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosagetext>5 MG, 2X/DAY</drugdosagetext>
+        <drugdosageform>TABLET</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <activesubstance>
+          <activesubstancename>APIXABAN</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>PRAVASTATIN.</medicinalproduct>
+        <drugstructuredosagenumb>40</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugdosagetext>40 MG, DAILY</drugdosagetext>
+        <drugdosageform>TABLET</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <activesubstance>
+          <activesubstancename>PRAVASTATIN</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>ZOLOFT</medicinalproduct>
+        <drugstructuredosagenumb>25</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugdosagetext>25 MG, DAILY</drugdosagetext>
+        <drugdosageform>TABLET</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <activesubstance>
+          <activesubstancename>SERTRALINE HYDROCHLORIDE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>DEXILANT</medicinalproduct>
+        <drugstructuredosagenumb>60</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugdosagetext>60 MG, DAILY</drugdosagetext>
+        <drugdosageform>PROLONGED-RELEASE CAPSULE</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <drugindication>HIATUS HERNIA</drugindication>
+        <activesubstance>
+          <activesubstancename>DEXLANSOPRAZOLE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <summary>
+        <narrativeincludeclinical>CASE EVENT DATE: 2014</narrativeincludeclinical>
+      </summary>
+    </patient>
+  </safetyreport>
+  <safetyreport>
+    <safetyreportversion>4</safetyreportversion>
+    <safetyreportid>10303441</safetyreportid>
+    <primarysourcecountry>FR</primarysourcecountry>
+    <occurcountry>FR</occurcountry>
+    <transmissiondateformat>102</transmissiondateformat>
+    <transmissiondate>20211014</transmissiondate>
+    <reporttype>1</reporttype>
+    <serious>1</serious>
+    <seriousnessdeath>1</seriousnessdeath>
+    <seriousnessother>1</seriousnessother>
+    <receivedateformat>102</receivedateformat>
+    <receivedate>20140714</receivedate>
+    <receiptdateformat>102</receiptdateformat>
+    <receiptdate>20210702</receiptdate>
+    <fulfillexpeditecriteria>1</fulfillexpeditecriteria>
+    <authoritynumb>FR-AFSSAPS-LM20140489</authoritynumb>
+    <companynumb>FR-B.I. PHARMACEUTICALS,INC./RIDGEFIELD-2014-BI-32019FF</companynumb>
+    <duplicate>1</duplicate>
+    <reportduplicate>
+      <duplicatesource>BOEHRINGER INGELHEIM</duplicatesource>
+      <duplicatenumb>FR-B.I. PHARMACEUTICALS,INC./RIDGEFIELD-2014-BI-32019FF</duplicatenumb>
+    </reportduplicate>
+    <primarysource>
+      <reportercountry>FR</reportercountry>
+      <qualification>5</qualification>
+    </primarysource>
+    <sender>
+      <sendertype>2</sendertype>
+      <senderorganization>FDA-Public Use </senderorganization>
+    </sender>
+    <receiver>
+      <receivertype>6</receivertype>
+      <receiverorganization>FDA</receiverorganization>
+    </receiver>
+    <patient>
+      <patientonsetage>56</patientonsetage>
+      <patientonsetageunit>801</patientonsetageunit>
+      <patientagegroup>5</patientagegroup>
+      <patientweight>135</patientweight>
+      <patientsex>1</patientsex>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Multiple organ dysfunction syndrome</reactionmeddrapt>
+        <reactionoutcome>5</reactionoutcome>
+      </reaction>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Cardiogenic shock</reactionmeddrapt>
+        <reactionoutcome>5</reactionoutcome>
+      </reaction>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Fatigue</reactionmeddrapt>
+        <reactionoutcome>6</reactionoutcome>
+      </reaction>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Small intestinal haemorrhage</reactionmeddrapt>
+        <reactionoutcome>5</reactionoutcome>
+      </reaction>
+      <reaction>
+        <reactionmeddraversionpt>24.0</reactionmeddraversionpt>
+        <reactionmeddrapt>Anal haemorrhage</reactionmeddrapt>
+        <reactionoutcome>6</reactionoutcome>
+      </reaction>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>EXFORGE</medicinalproduct>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>12</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>805</drugintervaldosagedefinition>
+        <drugdosagetext>1?0?1</drugdosagetext>
+        <drugindication>PRODUCT USED FOR UNKNOWN INDICATION</drugindication>
+        <activesubstance>
+          <activesubstancename>AMLODIPINE BESYLATE\VALSARTAN</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>BISOPROLOL</medicinalproduct>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosagetext>1?0?0</drugdosagetext>
+        <drugindication>PRODUCT USED FOR UNKNOWN INDICATION</drugindication>
+        <activesubstance>
+          <activesubstancename>BISOPROLOL</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>KARDEGIC</medicinalproduct>
+        <drugbatchnumb> UNKNOWN</drugbatchnumb>
+        <drugstructuredosagenumb>160</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosageform>CUTANEOUS POWDER</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <drugindication>ISCHAEMIC CARDIOMYOPATHY</drugindication>
+        <drugstartdateformat>102</drugstartdateformat>
+        <drugstartdate>20121005</drugstartdate>
+        <drugenddateformat>102</drugenddateformat>
+        <drugenddate>20140511</drugenddate>
+        <actiondrug>5</actiondrug>
+        <drugadditional>3</drugadditional>
+        <activesubstance>
+          <activesubstancename>ASPIRIN DL-LYSINE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>PRADAXA</medicinalproduct>
+        <drugbatchnumb> UNKNOWN</drugbatchnumb>
+        <drugauthorizationnumb>022512</drugauthorizationnumb>
+        <drugstructuredosagenumb>150</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosageform>CAPSULE</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <drugindication>ATRIAL FIBRILLATION</drugindication>
+        <drugstartdateformat>102</drugstartdateformat>
+        <drugstartdate>20121005</drugstartdate>
+        <drugenddateformat>102</drugenddateformat>
+        <drugenddate>20140511</drugenddate>
+        <actiondrug>6</actiondrug>
+        <activesubstance>
+          <activesubstancename>DABIGATRAN ETEXILATE MESYLATE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>METFORMIN</medicinalproduct>
+        <drugstructuredosagenumb>1000</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>8</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>805</drugintervaldosagedefinition>
+        <drugdosagetext>1?1?1</drugdosagetext>
+        <drugindication>PRODUCT USED FOR UNKNOWN INDICATION</drugindication>
+        <activesubstance>
+          <activesubstancename>METFORMIN HYDROCHLORIDE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>LASILIX [FUROSEMIDE]</medicinalproduct>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>12</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>805</drugintervaldosagedefinition>
+        <drugdosagetext>1?1?0</drugdosagetext>
+        <drugindication>PRODUCT USED FOR UNKNOWN INDICATION</drugindication>
+        <activesubstance>
+          <activesubstancename>FUROSEMIDE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>INEGY</medicinalproduct>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosagetext>0?0?1</drugdosagetext>
+        <drugindication>PRODUCT USED FOR UNKNOWN INDICATION</drugindication>
+        <activesubstance>
+          <activesubstancename>EZETIMIBE\SIMVASTATIN</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>PANTOPRAZOLE</medicinalproduct>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosagetext>0?0?1</drugdosagetext>
+        <drugindication>PRODUCT USED FOR UNKNOWN INDICATION</drugindication>
+        <activesubstance>
+          <activesubstancename>PANTOPRAZOLE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>TEMESTA [LORAZEPAM]</medicinalproduct>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>1</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>804</drugintervaldosagedefinition>
+        <drugdosagetext>0?0?1</drugdosagetext>
+        <drugindication>PRODUCT USED FOR UNKNOWN INDICATION</drugindication>
+        <activesubstance>
+          <activesubstancename>LORAZEPAM</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>1</drugcharacterization>
+        <medicinalproduct>CORDARONE</medicinalproduct>
+        <drugbatchnumb> UNKNOWN</drugbatchnumb>
+        <drugstructuredosagenumb>200</drugstructuredosagenumb>
+        <drugstructuredosageunit>003</drugstructuredosageunit>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>12</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>805</drugintervaldosagedefinition>
+        <drugdosageform>TABLET</drugdosageform>
+        <drugadministrationroute>048</drugadministrationroute>
+        <drugindication>ATRIAL FIBRILLATION</drugindication>
+        <drugenddateformat>102</drugenddateformat>
+        <drugenddate>20140511</drugenddate>
+        <actiondrug>5</actiondrug>
+        <drugadditional>3</drugadditional>
+        <activesubstance>
+          <activesubstancename>AMIODARONE HYDROCHLORIDE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>PROCORALAN</medicinalproduct>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>12</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>805</drugintervaldosagedefinition>
+        <drugdosagetext>1?0?1</drugdosagetext>
+        <activesubstance>
+          <activesubstancename>IVABRADINE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <drug>
+        <drugcharacterization>2</drugcharacterization>
+        <medicinalproduct>SERETIDE</medicinalproduct>
+        <drugseparatedosagenumb>1</drugseparatedosagenumb>
+        <drugintervaldosageunitnumb>12</drugintervaldosageunitnumb>
+        <drugintervaldosagedefinition>805</drugintervaldosagedefinition>
+        <drugdosagetext>1?0?1</drugdosagetext>
+        <activesubstance>
+          <activesubstancename>FLUTICASONE PROPIONATE\SALMETEROL XINAFOATE</activesubstancename>
+        </activesubstance>
+      </drug>
+      <summary>
+        <narrativeincludeclinical>CASE EVENT DATE: 20131122</narrativeincludeclinical>
+      </summary>
+    </patient>
+  </safetyreport>
+</ichicsr>
