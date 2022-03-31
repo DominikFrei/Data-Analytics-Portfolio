@@ -5,7 +5,8 @@ The aim of this project was to import adverse event data published by the FDA (h
 In Part 1 I tried to import the XML files into R, extract the data and save it as CSV files. The reason for this was, that the MySQL workbench supports import of CSV files via the “Table Data Import Wizard”, which does not require to write any statements to set up the tables and import the data. I wrote a function in R that produces a CSV file out of an XML (tested on a small XML file, containing only ca. 30 cases). As there where many problems with using the “Table Data Import Wizard” (e.g. it chooses the wrong datatype etc.) I finally decided to write statements to create the tables and import the data. I was able to set up everything properly. However, when I tested my R function on one of the “big XML” (one out of three that are published each quarter) I realized, that this takes way too long and abandonned this strategy.
 In part two I improved the statements for setting up the database and imported the XML files directly into MySQL.
 
-## Resources: I used this blogbost as reference to treat nested XML files: https://medium.com/geekculture/reading-xml-files-in-r-3122c3a2a8d9
+## Resources:
+I used this blogbost as reference to treat nested XML files: https://medium.com/geekculture/reading-xml-files-in-r-3122c3a2a8d9
 
 ## What I learned:
 - Extracting data from nested XML files using xml2 package
