@@ -37,3 +37,8 @@ The results where visualized via barcharts and a heatmap and then interpreted.
 - MySQL: 15 h
 - R: 25 h
 - Other (writing, reading literature etc.): 10 h
+
+## Links:
+To view all the code directly in your browser use the link below:
+
+https://rawgit.com/DominikFrei/Data-Analytics-Portfolio/main/P4_Quantitative_Signal_Detection_Covid_Vaccines/P4_Signal_Detection_Covid_Vaccines.html
