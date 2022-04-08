@@ -1,0 +1,2435 @@
+---
+title: "P4 Quantitative Signal Detection for Covid Vaccines"
+author: "Dominik Frei"
+date: "28.03.2022 - 07.04.2022"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+
+# Abstract
+
+In this project several measures of disproportionality ($\chi^{2}$, RRR, ROR, PRR, Fishers exact test, BCPNN)
+where calculated for a selection of adverse events
+and the three Covid-19 vaccines on the market in the US. The data for the contingency tables,
+these measures where calculated from, was retrieved 
+from a previously set up MySQL database, containing data published by the FDA.
+This was done via SQL queries written via an R script. Then the actual values for the
+contingency tables, as well as the measures of disproportionality and their confidence intervals and
+p-values where calculated.\
+In some cases these calculations where done via functions written by myself. In other cases
+preexisting functions where used.\
+The results where visualized via barcharts and a heatmap and then interpreted.
+
+## Resources:
+
+- Chapter 20 "Quantitative Signal Detection and Analysis in Pharmacovigilance" of "MANN’S PHARMACOVIGILANCE THIRD EDITION" edited by E. ANDREWS and N. MOORE, 2014 by John Wiley & Sons, Ltd.\
+- "Primer on Disproportionality Analysis" Version: 2018-10-16 by Ruwen Böhm (Uni Kiel)\
+
+## What I learned:
+
+- Inserting results from SQL querries into a table, to collect them and retrieve them as a whole\
+- Accessing a MySQL database via R Markdown\
+- Using R Markdown to present code, results and mathematic formulas\
+- Creating plots with ggplot2\
+- Better command of dplyr functions\
+- Interpreting statistics (p-value, confidence interval)\
+- Properties of and how to calculate several measures of disproportionality\
+
+## Possible Improvements:
+- Use one-sided tests instead of two-sided tests
+
+## Duration:
+
+- MySQL: 15 h\
+- R: 25 h\
+- Other (writing, reading literature etc.): 10 h\
+
+# Introduction
+
+The goal of this work is to try out different established measures of disproportionality on
+data concerning Covid-19 vaccines. Measures of disproportionality, are derived from 
+contingency tables and compare the amount
+of reports for a certain product event pair to how often the event was reported in the whole database.
+This is based on the assumption that underreporting is comparable for all products and events.
+Measures of disproportionality are used for quantitative signal detection. They are used together with other
+methods to screen for possible signals. They do not necessarily provide evidence for
+a causal relationship for a product event pair.
+
+# Glossary
+
+* Contingency Table: Here, a table listing counts of cases:\
+\t + linked to the product in question and the event in question\
+\t + linked only to the product in question (and all other events then the one in question)\
+\t + linked only to the event in question (and all other products then the one in question)\
+\t + linked to any product or event (excluding the products and events in question)\
+
+- Event: Here used for adverse event: A negative and unwanted event, that could be related to
+the administration of a drug.
+
+- Preferred Term (PT): The second lowest level coding according to MedDRA 
+(Medical Dictionary for Regulatory Activities). In order to standardize pharmacovigilance
+reporting events are coded according to this system. The preferred term is a standardized term,
+that is coded if one of many different terms (that mean the same event) is used 
+by the reporter to describe the event.
+
+- Reporter: The person who reports a case to a pharmaceutical company, health authority etc.
+Often the reporter is the treating physician. However it could also be a consumer.
+
+- Underreporting: Not every adverse event that occurs is reported to a pharmaceutical enterprise or
+a health authority. Therefore not every occurred adverse event can be found in ADR Databases such as the
+one used here. Underreporting can vary between territories, time periods, events products.
+
+- ADR: Adverse Drug Reaction
+
+- Signal: In pharmacovigilance, if there is a suspicion that there might be a causal
+relationship between the administration of a drug and the occurrence of an adverse event
+this constitutes a signal. This means that further investigations are initiated, which 
+can in turn lead to risk minimizing measures.
+
+# Code
+
+Library, MySQL connection and global code chunk options
+```{r include = TRUE, eval = FALSE}
+# load Library to execute MySQL statements from here
+library(RMySQL)
+# establish connection
+faers <- dbConnect(RMySQL::MySQL(),dbname='faers',username='root',password='Password', host='localhost',port=3306)
+
+knitr::opts_chunk$set(connection = "faers", echo = TRUE, eval = TRUE)
+```
+
+Increase buffersize in order to be able to work with big amounts of data in MySQL:
+```{sql connection = "faers"}
+SET GLOBAL innodb_buffer_pool_size=2147483648;
+```
+
+Libraries and working directory
+```{r message = FALSE, warning = FALSE, error = FALSE, eval = TRUE}
+library(tidyverse)
+library(knitr)
+
+setwd("C:/Users/domin/Desktop/Dominik/DS/Projects/P4_Signal_Detection_Covid_Vaccines")
+```
+
+## Exploratory Data Analysis of FAERS Database
+
+### Comirnaty
+
+Lets look at the records concerning Comirnaty (Covid Vaccination by Pfizer/BioNTech).\
+Create a temporary table with all the records concerning Comirnaty from the "drugs" table:
+```{sql connection = "faers"}
+create temporary table comirnaty_all_d
+select * from drugs
+where medicinalproduct =  "comirnaty";
+```
+
+Look at the created table:
+```{sql connection = "faers"}
+select * from comirnaty_all_d
+limit 2000;
+```
+
+What are the drug start dates?
+```{sql connection = "faers"}
+select drugstartdate, count(drugstartdate)
+from comirnaty_all_d
+group by drugstartdate
+order by drugstartdate;
+```
+Almost all of them are from end of Dec 2020 onward, as expected.
+One is from April 2020. This is probably a mistake.
+
+Look at general info for these cases
+```{sql connection = "faers"}
+select g.* from `general` g
+join comirnaty_all_d d on d.safetyreportid = g.safetyreportid;
+```
+
+Look at general info for the case from 20200414
+```{sql connection = "faers"}
+select * from `general` g
+join comirnaty_all_d d on d.safetyreportid = g.safetyreportid
+where d.drugstartdate = "20200414";
+```
+There is conflicting information: the companynumber includes 2021 
+(theses numbers usually contain the year of when the case was received by the company)
+however the field "narrativeincludeclinical" also gives 20200414 as case event date
+
+What is the reporttype of this case?
+```{sql connection = "faers"}
+select r.reporttype_def from `general` g
+join comirnaty_all_d d on d.safetyreportid = g.safetyreportid
+join lu_reporttype r on g.reporttype = r.reporttype
+where d.drugstartdate = "20200414";
+```
+It is a spontaneous report => this is impossible (as the drug had not been marketed at this time).
+I assume this was an error of the reporter, that could not be corrected via the follow-up requests.
+(It is common practice to enter the data provided by the reporter e.g. treating physician, even if it is 
+obviously not correct.)
+
+Do we have the other versions of the case as well?
+```{sql connection = "faers"}
+select * from `general`
+where safetyreportid = 
+(select safetyreportid from comirnaty_all_d
+where drugstartdate = "20200414");
+```
+No only version 5 => as the case is from spain, maybe only the final case version was transmitted to the FDA.
+
+Do we have several versions of certain cases?
+```{sql connection = "faers"}
+select safetyreportid, count(safetyreportid)
+from comirnaty_all_d
+group by safetyreportid
+order by count(safetyreportid) desc
+limit 2000;
+```
+Yes but not for that many.
+
+How many distinct safetyreport ids do we have?
+```{sql connection = "faers"}
+select count(distinct safetyreportid)
+from comirnaty_all_d
+limit 2000;
+```
+This gives the same number of rows as the query above, which validates the result.
+
+Look at records with id = 16243143 in "general":
+```{sql connection = "faers"}
+select * from `general`
+where safetyreportid = "16243143";
+```
+Here we have only 5 versions available.
+
+Where are these cases from?
+We will create a temp table for general with the cases with Comirnaty.
+```{sql connection = "faers"}
+create temporary table comirnaty_all_g
+select * from `general`
+where safetyreportid in 
+(select distinct safetyreportid
+from comirnaty_all_d);
+```
+1633 rows; how does this compare to comirnaty_all_d?
+
+How many records does the comirnaty_all_d table have
+```{sql connection = "faers"}
+select count(safetyreportid) from comirnaty_all_d
+limit 2000;
+```
+
+Are there the same number of distinct reportids
+```{sql connection = "faers"}
+select count(distinct safetyreportid)
+from comirnaty_all_d;
+```
+
+
+```{sql connection = "faers"}
+select count(distinct safetyreportid)
+from comirnaty_all_g;
+```
+Yes => For some cases there are probably several entries in the drugs table (first administration / second administration)
+
+```{sql connection = "faers"}
+select safetyreportid, count(safetyreportid)
+from comirnaty_all_g
+group by safetyreportid
+order by count(safetyreportid) desc;
+```
+We have some cases with 7 versions (in the "drugs" table the max was 6).
+There might be some case versions, where there is no entry with comirnaty in the "drugs" table.
+
+Look at case 15769292 (had 7 entries in general):
+```{sql connection = "faers"}
+select * from comirnaty_all_g
+where safetyreportid = "15769292";
+```
+There are 7 version available.
+
+And now in the "drugs" temp table:
+```{sql connection = "faers"}
+select * from comirnaty_all_d
+where safetyreportid = "15769292";
+```
+There are only two entries (for case version 20).
+The start and end dates are different => probably the two doses.
+This would mean that there is not always an entry in the "drugs" table for every version
+available in the "general" table.
+
+What does it look like in the complete "drugs" table
+```{sql connection = "faers"}
+select * from drugs
+where safetyreportid = "15769292"
+order by medicinalproduct;
+```
+There are also only two entries concerning Comirnaty.
+
+Look again at 16243143 and compare for the two temp tables:
+In "general":
+```{sql connection = "faers"}
+select * from comirnaty_all_g
+where safetyreportid = "16243143";
+```
+There are 5 versions available.
+
+In "drugs":
+```{sql connection = "faers"}
+select * from comirnaty_all_d
+where safetyreportid = "16243143";
+```
+There are 6 entries; 3 entries for first / second vaccination each (versions 9, 10, 11)
+
+Where are the reports with several versions from?
+```{sql connection = "faers"}
+select safetyreportid, count(safetyreportid), primarysourcecountry
+from comirnaty_all_g
+group by safetyreportid
+order by count(safetyreportid) desc;
+```
+Most are from germany;\
+NOTE: The local regulatory environment probably has an influence over what is transmitted to the FDA.
+
+What where the reported events?
+```{sql connection = "faers"}
+select distinct reactionmeddrapt
+from reactions
+where safetyreportid in
+(select distinct safetyreportid
+from comirnaty_all_g);
+```
+And including counts:
+```{sql connection = "faers"}
+select reactionmeddrapt, count(reactionmeddrapt)
+from reactions
+where safetyreportid in
+(select distinct safetyreportid
+from comirnaty_all_g)
+group by reactionmeddrapt
+order by count(reactionmeddrapt) desc;
+```
+The top results are commonly known AEs for vaccinations in general
+(or also common ADRs in general); some terms draw attention
+e.g. pulmonary embolism, alopecia, MS relapse, ischemic stroke
+
+### Other Covid Vaccines
+
+What are the reported indications for Comirnaty?
+```{sql connection = "faers"}
+select distinct drugindication
+from comirnaty_all_d;
+```
+Some off label uses and some different PTs.
+
+Which is the most commonly reported?
+```{sql connection = "faers"}
+select drugindication, count(drugindication)
+from comirnaty_all_d
+group by drugindication
+order by count(drugindication) desc;
+```
+"COVID-19 IMMUNISATION" by far.
+
+Search for medicinalproducts used for this indication:
+```{sql connection = "faers"}
+select distinct medicinalproduct
+from drugs
+where drugindication = "COVID-19 IMMUNISATION";
+```
+Many results; include count
+```{sql connection = "faers"}
+select medicinalproduct, count(medicinalproduct)
+from drugs
+where drugindication = "COVID-19 IMMUNISATION"
+group by medicinalproduct
+order by count(medicinalproduct) desc;
+```
+We will work further with the first 22 results
+(the result with the lowest number of cases of this selection has 12 cases).
+```{sql connection = "faers"}
+select medicinalproduct, count(medicinalproduct)
+from drugs
+where drugindication = "COVID-19 IMMUNISATION"
+group by medicinalproduct
+order by count(medicinalproduct) desc
+limit 22;
+```
+
+### Create Tables for Selected Products
+
+Create a temp table with these product names
+but exclude the term "vaccines" as it is not specific enough:
+```{sql connection = "faers", eval = FALSE}
+create temporary table covid_vac_all
+select medicinalproduct
+from drugs
+where drugindication = "COVID-19 IMMUNISATION"
+and medicinalproduct != "VACCINES"
+group by medicinalproduct
+order by count(medicinalproduct) desc
+limit 21;
+```
+
+Create temp table from "drugs" table for all records of these products:
+```{sql connection = "faers", eval = FALSE}
+create temporary table covac_all
+select * from drugs
+where medicinalproduct in 
+	(select * from covid_vac_all);
+```
+
+Get all cases that are related:
+```{sql connection = "faers", eval = FALSE}
+create temporary table covac_all_rel   
+select * from covac_all
+where drugcharacterization = 1;
+```
+ca. 10 k records.
+
+Drop the temp table with all cases:
+```{sql connection = "faers", eval = FALSE}
+drop table if exists covac_all;
+```
+
+#### Create Temp Tables with Product Names
+
+Make temp tables with the different terms used for the products + covid vaccine NOS 
+(= Not Otherwise Specified, meaning here just "a COVID Vaccine")
+
+- NOS
+```{sql connection = "faers", eval = FALSE}
+create temporary table covid_vac_nos
+select * from covid_vac_all
+where medicinalproduct in ("COVID?19 VACCINE NOS.", "COVID?19 VACCINE", "COVID-19 VACCINE", "COVID-19 VACCINE NOS", "COVID 19 VACCINE", "COVID VACCINE");
+```
+
+- Moderna
+```{sql connection = "faers", eval = FALSE}
+create temporary table covid_vac_mod
+select * from covid_vac_all
+where medicinalproduct in ("MODERNA COVID?19 VACCINE", "MODERNA COVID-19 VACCINE", "SPIKEVAX", "ELASOMERAN");
+```
+
+
+- Pfizer/BioNTech
+```{sql connection = "faers", eval = FALSE}
+create temporary table covid_vac_pfi
+select * from covid_vac_all
+where medicinalproduct in ("PFIZER?BIONTECH COVID?19 VACCINE", "PFIZER-BIONTECH COVID-19 VACCINE", "COMIRNATY", "TOZINAMERAN.", "TOZINAMERAN");
+```
+
+- Janssen
+```{sql connection = "faers", eval = FALSE}
+create temporary table covid_vac_jan
+select * from covid_vac_all
+where medicinalproduct in ("JANSSEN COVID-19 VACCINE", "JANSSEN COVID?19 VACCINE", "AD26.COV2.S");
+```
+
+- AstraZeneca
+```{sql connection = "faers", eval = FALSE}
+create temporary table covid_vac_ast
+select * from covid_vac_all
+where medicinalproduct in ("ASTRAZENECA COVID?19 VACCINE", "VAXZEVRIA", "ASTRAZENECA COVID-19 VACCINE");
+```
+
+#### Create Tables with Relevant Records
+
+To be able to run queries faster we extract the data for the cases with the selected products 
+from the tables "drugs" and "general" and create separate smaller tables for this data.\
+These will be dropped again at the end of the project.
+
+Due to performance issues this had to be done in two steps, first getting all the cases with the implicated products, then selecting the cases where the product is a suspect.
+
+Here only the table for the first group "nos" and the table "drugs" is included. The rest of the code can be found in the Appendix.
+
+- NOS
+
+Create temp table with all records for NOS:
+```{sql connection = "faers", eval = FALSE}
+create temporary table covac_nos_all
+select * from drugs
+where medicinalproduct in 
+	(select * from covid_vac_nos);
+```
+
+Create table with all records for NOS where causality is given as related with the selected products:
+```{sql connection = "faers", eval = FALSE}
+create table covac_nos_d    
+select * from covac_nos_all
+where drugcharacterization = 1;
+```
+
+Drop the first temp table:
+```{sql connection = "faers", eval = FALSE}
+drop table if exists covac_nos_all;
+```
+
+### Select Events to investigate
+
+In this section we will try to select some events that we will investigate further.
+
+#### Count of Reported Events
+
+Which are the most reported PTs?
+
+- nos
+```{sql connection = "faers"}
+select reactionmeddrapt, count(reactionmeddrapt) as `count`
+from reactions
+where safetyreportid in 
+	(select distinct safetyreportid from covac_nos_d)
+group by reactionmeddrapt
+order by count(reactionmeddrapt) desc;
+```
+
+- mod
+```{sql connection = "faers"}
+select reactionmeddrapt, count(reactionmeddrapt)
+from reactions
+where safetyreportid in 
+	(select distinct safetyreportid from covac_mod_d)
+group by reactionmeddrapt
+order by count(reactionmeddrapt) desc;
+```
+
+- pfi
+```{sql connection = "faers"}
+select reactionmeddrapt, count(reactionmeddrapt)
+from reactions
+where safetyreportid in 
+	(select distinct safetyreportid from covac_pfi_d)
+group by reactionmeddrapt
+order by count(reactionmeddrapt) desc;
+```
+
+- jan
+```{sql connection = "faers"}
+select reactionmeddrapt, count(reactionmeddrapt)
+from reactions
+where safetyreportid in 
+	(select distinct safetyreportid from covac_jan_d)
+group by reactionmeddrapt
+order by count(reactionmeddrapt) desc;
+```
+
+- ast
+```{sql connection = "faers"}
+select reactionmeddrapt, count(reactionmeddrapt)
+from reactions
+where safetyreportid in 
+	(select distinct safetyreportid from covac_ast_d)
+group by reactionmeddrapt
+order by count(reactionmeddrapt) desc;
+```
+
+#### IME List
+
+In order to select some reported reactions that can be investigated more closely,
+we will add the IME (Important Medical Events) List to the database.
+This list contains preferred terms (PTs), that are considered important.
+If a related reaction is reported, which is contained in this list, the case
+is considered serious.
+
+Create table with terms from IME List:
+```{sql connection = "faers", eval = FALSE}
+drop table if exists ime;
+create table ime (
+	ime_id int not null,
+	ime_name varchar(100),
+    primary key (ime_id));
+
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/ime_25_pt.csv' 
+INTO TABLE ime 
+FIELDS TERMINATED BY ';' 
+ENCLOSED BY ''
+LINES TERMINATED BY '\r\n'
+IGNORE 1 ROWS;
+```
+
+Get serious reported events with counts:
+
+- nos
+```{sql connection = "faers"}
+with reactioncounts as (
+	select reactionmeddrapt, count(reactionmeddrapt) as `count`
+	from reactions
+	where safetyreportid in 
+		(select distinct safetyreportid from covac_nos_d)
+	group by reactionmeddrapt
+	order by count(reactionmeddrapt) desc)
+select reactionmeddrapt, `count` from reactioncounts
+where reactionmeddrapt in (select ime_name from ime);
+```
+
+- ast
+```{sql connection = "faers"}
+with reactioncounts as (
+	select reactionmeddrapt, count(reactionmeddrapt) as `count`
+	from reactions
+	where safetyreportid in 
+		(select distinct safetyreportid from covac_ast_d)
+	group by reactionmeddrapt
+	order by count(reactionmeddrapt) desc)
+select reactionmeddrapt, `count` from reactioncounts
+where reactionmeddrapt in (select ime_name from ime);
+```
+The results with the highest count are
+Thrombocytopenia, Pulmonary embolism, Thrombosis, Haemorrhage, Deep vein thrombosis
+=> all fall in the same category.
+
+There are still too many terms.
+
+#### DME List
+The DME List contains some PTs for which the cause may likely be an Adverse Reaction to a drug.
+They are very severe and/or dont occur often outside the context of ADRs.
+In practice cases with such events are investigated more closely, as a causality
+with a drug is generally speaking more likely then for other terms.
+
+Therefore it makes sense to use this list as inclusion criterium for our selection.
+
+Create table with terms from DME List:
+```{sql connection = "faers", eval = FALSE}
+drop table if exists dme;
+create table dme (
+	dme_id int not null,
+	dme_name varchar(100),
+    primary key (dme_id));
+
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/dme_list.csv' 
+INTO TABLE dme 
+FIELDS TERMINATED BY ';' 
+ENCLOSED BY ''
+LINES TERMINATED BY '\r\n'
+IGNORE 1 ROWS;
+```
+
+Do we have reports for some events that are on the DME list?
+```{sql connection = "faers", eval = FALSE}
+with reactioncounts as (
+	select reactionmeddrapt, count(reactionmeddrapt) as `count`
+	from reactions
+	where safetyreportid in 
+		(select distinct safetyreportid from covac_all_rel)
+	group by reactionmeddrapt
+	order by count(reactionmeddrapt) desc)
+select reactionmeddrapt, `count` from reactioncounts
+where reactionmeddrapt in (select dme_name from dme);
+```
+42 results => Anaphylactic reaction, Deafness, Immune thrombocytopenia etc.
+
+#### Labeledness
+
+If there is already information about a causal relationship between a drug an event, it is included in the Label.
+We will use the label as exclusion criterium for our selection. 
+
+We got all the PTs that are labelled (according to SPC accessed on EMA webpage)
+and created tables containing these PTs in our database.\
+Here only the statements for AstraZeneca are shown, the rest can be found in the Appendix.
+
+- ast
+
+Create table containing labelled events:
+```{sql connection = "faers", eval = FALSE}
+drop table if exists ast_label;
+create table ast_label (
+	ast_label_id int not null,
+	ast_label_def varchar(100),
+    primary key (ast_label_id));
+
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/ast_label.csv' 
+INTO TABLE ast_label 
+FIELDS TERMINATED BY ';' 
+ENCLOSED BY ''
+LINES TERMINATED BY '\r\n'
+IGNORE 1 ROWS;
+```
+
+Use the labelledness as exclusion criteria in query:
+```{sql connection = "faers"}
+with reactioncounts as (
+	select reactionmeddrapt, count(reactionmeddrapt) as `count`
+	from reactions
+	where safetyreportid in 
+		(select distinct safetyreportid from covac_ast_d)
+	group by reactionmeddrapt
+	order by count(reactionmeddrapt) desc)
+select reactionmeddrapt, `count` from reactioncounts
+where reactionmeddrapt in (select dme_name from dme)
+and reactionmeddrapt not in (select ast_label_def from ast_label);
+```
+
+We can run this query for all products and then select the terms above a certain cutoff.
+We will take >= 4 as cutoff (We are choosing this more or less arbitrarily here, 
+in order to get only a manageable number of events in our selection).\
+The results will be inserted into the table "selected_events".
+
+Here again only the first such statements are included. The rest can be found in the Appendix.
+
+Create table to store the results from our querries:
+```{sql connection = "faers", eval = FALSE}
+drop table if exists selected_events;
+create table selected_events (
+	selected_events_id int not null auto_increment,
+	PT varchar(100),
+    primary key (selected_events_id));
+```
+
+Insert the selected events for AstraZeneca into the table created above:
+```{sql connection = "faers", eval = FALSE}
+insert selected_events(PT)
+with reactioncounts as (
+	select reactionmeddrapt, count(reactionmeddrapt) as `count`
+	from reactions
+	where safetyreportid in 
+		(select distinct safetyreportid from covac_ast_d)
+	group by reactionmeddrapt
+	order by count(reactionmeddrapt) desc)
+select reactionmeddrapt from reactioncounts
+where reactionmeddrapt in (select dme_name from dme)
+and reactionmeddrapt not in (select ast_label_def from ast_label)
+and `count` >= 4;
+```
+
+Retrieve the complete selected_events table (saved as a dataframe "selected_events" in R environment).
+```{sql connection = "faers", output.var="selected_events"}
+select * from selected_events;
+```
+
+## Create Contingency Tables
+
+In this section we will automate the writing of SQL statements to retrieve the necessary data
+to create contingency tables for the selected product (Moderna, 
+Pfizer-BioNTech, Janssen, "NOS") event (the events selected in the section above) pairs.
+
+We will look at events from the US, as we can assume that the data is most complete for the use, 
+since the data we are working with was published by the FDA.\
+Therefore, we will not include the AstraZeneca Vaccine, as this is not on the market in the US.
+We will look at the time periods since the respective products first came on the market.
+
+Representation of such a contingency table:
+```{r eval = TRUE, include=FALSE}
+data.frame(i = c(".", "+ ADR", "- ADR"), j = c("+ Drug", "a", "b"), k = c("- Drug", "a", "b")) %>% print()
+```
+
+Drop the index column and duplicates of selected_events
+```{r}
+selected_events_cl <- selected_events[,2] %>% unique()
+selected_events_cl %>% kable()
+```
+
+### Overview
+
+Subsequently we will use DA, nDA, DnA and nDnA for the output of the SQL queries
+and a, b, c, d for the actual values for the contingency tables.
+
+To get the data necessary to fill out contingency tables for all product event pairs
+we need to produce the following kinds of statements:
+
+- \+ Drug + ADR = DA = a
+
+```{sql connection = "faers", eval = FALSE}
+select count(safetyreportid) from reactions
+where safetyreportid in
+	(select distinct g.safetyreportid from [table_g]
+        where occurcountry = "US"
+	and receivedate >= [Marketing Date])
+and reactionmeddrapt = [Event];
+```
+
+- \- Drug + ADR = nDA
+
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as
+	(select distinct g.safetyreportid
+        from reactions r
+        join `general` g on r.safetyreportid = g.safetyreportid
+        where g.occurcountry = "US"
+	and g.receivedate >= [Marketing Date]
+        and r.reactionmeddrapt = [Event])
+select count(safetyreportid)
+from dist_cases;
+```
+
+nDA - a = b
+
+- \+ Drug - ADR = DnA
+
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as 
+	(select distinct safetyreportid from [table_d])
+select count(safetyreportid)
+from dist_cases;
+```
+
+DnA - a = c
+
+NOTE: This has to be run only once for each product.
+Therefore we will treat this separately.
+
+- \- Drug - ADR = nDnA
+
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as
+	(select distinct safetyreportid
+        from `general`
+        where occurcountry = "US"
+	and receivedate >= [Marketing Date])
+select count(safetyreportid)
+from dist_cases;
+```
+
+nDnA - a - b - c = d\
+NOTE: This has to be run only once for each product.
+Therefore we will treat this separately.
+
+### First Test
+
+Create a table to write the results of our queries in.
+```{sql connection = "faers", eval = FALSE}
+create table cont_res_DA (
+        res_id int not null auto_increment,
+        Product varchar(3),
+        Event varchar(100),
+        DA int not null,
+        primary key(res_id)
+)
+```
+
+See if we can input the results of a query into this table together with
+the event and product name.
+```{sql connection = "faers", eval = FALSE}
+insert cont_res_DA (Product, Event, DA)
+values("NOS", ""Myocarditis",
+        (select count(safetyreportid) from reactions
+        where safetyreportid in
+	        (select distinct safetyreportid from covac_pfi_g
+                where occurcountry = "US"
+	        and receivedate >= "20201213")
+        and reactionmeddrapt = "Myocarditis")
+        );
+```
+This works.
+
+As we can insert the results of several queries into one table, I will drop the table created above
+and create a new table to put in all the results.
+```{sql connection = "faers", eval = FALSE}
+drop table if exists cont_res_DA
+```
+
+```{sql connection = "faers", eval = FALSE}
+create table cont_res (
+        res_id int not null auto_increment,
+        Product varchar(3),
+        Event varchar(100),
+        DA int not null,
+        nDA int not null,
+        primary key(res_id)
+)
+```
+
+Try to insert the results of all three queries for the same product event pair: 
+```{sql connection = "faers", eval = FALSE}
+insert cont_res (Product, Event, DA, nDA)
+values("NOS", "Myocarditis",
+        (select count(safetyreportid) from reactions
+        where safetyreportid in
+	        (select distinct safetyreportid from covac_pfi_g
+                where occurcountry = "US"
+	        and receivedate >= "20201213")
+        and reactionmeddrapt = "Myocarditis"
+        ),
+        (with dist_cases as
+	        (select distinct g.safetyreportid
+                from reactions r
+                join `general` g on r.safetyreportid = g.safetyreportid
+                where g.occurcountry = "US"
+	        and g.receivedate >= "20201213"
+                and r.reactionmeddrapt = "Myocarditis")
+        select count(safetyreportid)
+        from dist_cases
+        );
+```
+This works.
+
+### For Loop to write MySQL querries
+
+Write a for loop to output a statement analogous to the one above for all product event pairs.
+
+Setup the additional necessary tables. We put all the strings additionally in '', 
+as this makes the pasting together easier.
+NOTE: for the group "nos" I just put the date, when the first product (Pfizer vaccine) was marketed (20201214).
+```{r, eval = FALSE}
+prod_id <- c("'nos'", "'mod'", "'pfi'", "'jan'")
+marketing_date <- c("'20201214'", "'20201221'", "'20201214'", "'20210301'")
+table_names_g <- c("covac_nos_g", "covac_mod_g", "covac_pfi_g", "covac_jan_g")
+
+events <- list()
+for (i in 1:23) {
+        string <- paste("'", selected_events_cl[[i]], "'", sep = "")
+        events <- c(events, string)
+}
+```
+
+Set up a nested for loop, with the products as outer loop and the events as inner loop.
+```{r, eval = FALSE}
+for (p in 4:4) {
+        prod <- prod_id[[p]]
+        date <- marketing_date[[p]]
+        table_g <- table_names_g[[p]]
+        for (e in 1:23) {
+                event <- events[[e]]
+                statement <-
+                        paste("insert cont_res (Product, Event, DA, nDA)\nvalues(",
+                              prod,
+                              ", ",
+                              event,
+                              ", \n\t(select count(safetyreportid) from reactions\n\twhere safetyreportid in\n\t\t(select distinct safetyreportid from ",
+                              table_g,
+                              "\n\t\twhere occurcountry = 'US'\n\t\tand receivedate >= ",
+                              date,
+                               ")\n\tand reactionmeddrapt = ",
+                               event,
+                              "\n\t),\n\t(with dist_cases as\n\t\t(select distinct g.safetyreportid\n\t\tfrom reactions r\n\t\tjoin `general` g on r.safetyreportid = g.safetyreportid\n\t\twhere g.occurcountry = 'US'\n\t\tand g.receivedate >= ",
+                              date,
+                              "\n\t\tand r.reactionmeddrapt = ",
+                              event,
+                              ")\n\tselect count(safetyreportid)\n\tfrom dist_cases\n\t)\n\t);",
+                              "\n\n",
+                              sep = "")
+                cat(statement, sep = "")
+             
+        }
+}
+```
+
+This is the first output:
+```{sql connection = "faers", eval = FALSE}
+insert cont_res (Product, Event, DA, nDA, DnA)
+values('nos', 'Acute kidney injury', 
+	(select count(safetyreportid) from reactions
+	where safetyreportid in
+		(select distinct safetyreportid from covac_nos_g
+		where occurcountry = 'US'
+		and receivedate >= '20201214')
+	and reactionmeddrapt = 'Acute kidney injury'
+	),
+	(with dist_cases as
+		(select distinct g.safetyreportid
+		from reactions r
+		join `general` g on r.safetyreportid = g.safetyreportid
+		where g.occurcountry = 'US'
+		and g.receivedate >= '20201214'
+		and r.reactionmeddrapt = 'Acute kidney injury')
+	select count(safetyreportid)
+	from dist_cases
+	)
+	);
+```
+The produced querry works in SQL.
+
+### Run queries
+
+The results table was reset and all the created queries where executed in the MySQL workbench.
+The code was omitted here, as it is very repetitive.
+
+Get the results and save it as "cont_res" in the R environment:
+```{sql connection = "faers", output.var="cont_res", eval = TRUE}
+select * from cont_res;
+```
+
+### Results for DnA and nDnA
+
+Now we still need the Data to calculate the values c and d for our contingency tables.
+
+#### nDnA
+
+Run the statements to get the remaining needed data:
+
+- NOS
+```{sql connection = "faers"}
+with dist_cases as 
+	(select distinct safetyreportid from covac_nos_d)
+select count(safetyreportid)
+from dist_cases;
+```
+
+- Moderna
+```{sql connection = "faers"}
+with dist_cases as 
+	(select distinct safetyreportid from covac_mod_d)
+select count(safetyreportid)
+from dist_cases;
+```
+
+- Pfizer/BioNTech
+```{sql connection = "faers"}
+with dist_cases as 
+	(select distinct safetyreportid from covac_pfi_d)
+select count(safetyreportid)
+from dist_cases;
+```
+
+- Janssen
+```{sql connection = "faers"}
+with dist_cases as 
+	(select distinct safetyreportid from covac_jan_d)
+select count(safetyreportid)
+from dist_cases;
+```
+
+#### nDnA
+
+- NOS / Pfizer/BioNTech (Same as they have the same launch date)
+```{sql connection = "faers"}
+with dist_cases as
+	(select distinct safetyreportid
+        from `general`
+        where occurcountry = "US"
+	and receivedate >= "20201214")
+select count(safetyreportid)
+from dist_cases;
+```
+
+- Moderna
+```{sql connection = "faers"}
+with dist_cases as
+	(select distinct safetyreportid
+        from `general`
+        where occurcountry = "US"
+	and receivedate >= "20201221")
+select count(safetyreportid)
+from dist_cases;
+```
+
+- Janssen
+```{sql connection = "faers"}
+with dist_cases as
+	(select distinct safetyreportid
+        from `general`
+        where occurcountry = "US"
+	and receivedate >= "20210301")
+select count(safetyreportid)
+from dist_cases;
+```
+
+Put these results into a dataframe
+```{r eval = TRUE}
+cont_res_DnA_nDnA <- data.frame(Prod = c("nos", "mod", "pfi", "jan"), DnA = c(2363, 962, 3002, 210), nDnA = c(1177615, 1155278, 1177615, 922845))
+```
+
+### Calculate Values for Contingency Tables
+
+Add the results for DnA and nDnA to the other results
+```{r eval = TRUE}
+cont_res_all <- cont_res
+#DnA
+#create new column
+cont_res_all$DnA <- 0
+prod <- c("nos", "mod", "pfi", "jan")
+#fill values in
+for (i in 1:4) {
+        cont_res_all[which(cont_res$Product == prod[[i]]), "DnA"] <- cont_res_DnA_nDnA[which(cont_res_DnA_nDnA$Prod == prod[[i]]), "DnA"]
+}
+
+#nDnA
+#create new column
+cont_res_all$nDnA <- 0
+#fill values in
+for (i in 1:4) {
+        cont_res_all[which(cont_res$Product == prod[[i]]), "nDnA"] <- cont_res_DnA_nDnA[which(cont_res_DnA_nDnA$Prod == prod[[i]]), "nDnA"]
+}
+```
+
+Calculate the actual values for the contingency table
+```{r eval = TRUE}
+#create dataframe
+cont <- cont_res_all[,c("Product", "Event")]
+
+#a: DA = a
+cont <- cbind(cont, a = as.numeric(cont_res_all$DA))
+
+#b: nDA - DA = b
+cont <- cont_res_all %>% transmute(., b = nDA - DA) %>% unlist() %>% as.numeric() %>% cbind(cont, b = .)
+
+#c: DnA - DA = c
+cont <- cont_res_all %>% transmute(., c = DnA - DA) %>% cbind(cont, .)
+
+#d: nDnA - DA - nDA - DnA = d
+cont <- cont_res_all %>% transmute(., d = nDnA - DA - nDA - DnA) %>% cbind(cont, .)
+```
+
+Omit the records where a = 0, meaning there where no cases reported for the respective product event pair.
+```{r eval = TRUE}
+cont <- cont[cont$a != 0,]
+```
+
+
+## Disproportionality Analysis
+
+Using the created contingency tables, we will now apply several well established tests to calculate if there was disproportional reporting.
+This would give a hint that there might be an association between the administration of a drug and the occurrence of an event.
+See $^{1}$ for more detailed information.
+
+Some values will be calculated "by hand" and others via available functions.\
+We will mark items/values calculated "by hand" with "_c" and items/values obtained via
+preexisting functions with "_f".
+
+### $\chi^{2}$ with Yates’ correction
+
+This test is used to identify whether there is a statistically significant association between two independent categorical dichotomous  variables.\
+"The higher the χ2 value, the more the observed numbers deviate from expected numbers."$^{2}$
+
+$\chi^{2}$ with Yates correction for 2x2 contingency tables can be calculated as follows:
+
+$$ \chi^{2}_{Yates} = \frac{n(|ad − bc|-0.5n)^{2}}{(a + b)(c + d)(a + c)(b + d)} $$
+with n (= samplesize) as:
+$$ n = a + b + c + d $$
+
+calculate $\chi^{2}_{Yates}$:
+```{r eval = TRUE}
+chi2_yates_c_fun <- function(record){
+        a <- record[["a"]]
+        b <- record[["b"]]
+        c <- record[["c"]]
+        d <- record[["d"]]
+        n <- a+b+c+d
+        chi2 <- (n*(abs(a*d-b*c)-0.5*n )^2)/((a + b)*(c + d)*(a + c)*(b + d))
+        
+        return(chi2)
+}
+chi2 <- cont %>% select(a,b,c,d) %>% apply(., MARGIN = 1, FUN = chi2_yates_c_fun)
+
+chi2 <- cbind(cont[,1:2], chi2_c = chi2)
+```
+
+Now we will compare the results, with these of the function chisq.test(correct = TRUE)?\
+This function takes data from a contingency table in the following form:
+```{r}
+##              D       nD
+## ADR          a       b
+## nADR         c       d
+```
+
+Therefore, we will write a function that does the reformatting before 
+applying chisq.test()
+```{r eval = TRUE, error = FALSE, message = FALSE, warning = FALSE}
+chi2_yates_f_fun <- function(record){
+        abcd <- c(as.numeric(record[[3]]), as.numeric(record[[5]]), as.numeric(record[[4]]), as.numeric(record[[6]]))
+        cont_table <- matrix(abcd, nrow = 2, ncol = 2)
+        result <- chisq.test(cont_table, correct = TRUE)
+        return(result)
+}
+
+chi2_f_res <- cont %>% apply(., MARGIN = 1, FUN = chi2_yates_f_fun) 
+
+#extract chi2 and the p-values
+chi2_f <- chi2_f_res %>% lapply(., function(x){
+        chi2 <- x[["statistic"]][["X-squared"]]
+        return(chi2)
+})
+
+pval_f <- chi2_f_res %>% lapply(., function(x){
+        pval <- x[["p.value"]]
+        return(pval)
+})
+
+#bind to chi2 to compare data
+chi2 <- chi2_f %>% unlist %>% cbind(chi2, chi2_f = .)
+chi2 <- pval_f %>% unlist %>% cbind(chi2, pval_f = .)
+
+#get values that differ significantly
+dif <- chi2 %>% cbind(cont[3:6], .) %>% mutate(., dif_c_f = chi2_c - chi2_f) %>% filter(dif_c_f > 0.00001)
+kable(dif, format.args = list(scientific = FALSE))
+```
+We got some warnings, that the result might not be correct (not included here). 
+This is due to some numbers in the contingency table beeing to small e.g. <5\
+The results are mostly the same except for the product event combinations shown above.
+For these the result from chisq.test() is very small.
+
+I was unable to find the reason for this and proceeded by using the output from the
+chisq.test().
+
+#### Cut-off
+
+"$\chi^{2}$ values greater than 3.841 indicate statistical significance with p ≤ 0.05, i.e., more than 95% chance that the observed numbers are really different from the expected numbers. Routinely, a $\chi^{2}$ value of 4 (p=0.045) is used as cut-off."$^{2}$
+
+This statement can be validated by calculating the degrees of freedom of a 2x2 contingency table
+with r = rows and c = columns, as follows:
+$$ df = (r-1)(c-1) $$
+For a 2x2 contingency table the result therefore is: 1\
+
+We can then look up the cut off value for a certain p-value in a chi square table, which gives us 3.841 as stated above.\
+
+Select for values with p >= 0.05 (>= 3.841):
+```{r eval = TRUE}
+chi2_sig <- cbind(cont[,1:2], received_cases = cont[,3], chi2_f = chi2$chi2_f) %>% filter(chi2_f >= 3.841) %>% group_by(Product) %>% arrange(desc(chi2_f), .by_group = TRUE)
+kable(chi2_sig, digits = 2)
+```
+
+#### Interpretation
+
+The $\chi^{2}$ value in the table above provides us with information 
+about how certain we are that the variables (drug / no Drug; ADR / no ADR) are not independent 
+=> bigger values means we are more sure that there is an association between administration of 
+the product and occurence of the event.\
+We get no information about the strength of the association.
+
+In 2x2 contingency tables where one off the numbers is <5 Fishers' Exact Test should be preferred to the $\chi^{2}$ statstic.
+This is the case for many of our product event pairs.
+
+### Relative Reporting Ratio (RRR)
+
+"Ratio of observed frequency (risk) to expected frequency in the complete population."$^{2}$
+
+With n = samplesize as:
+$$ n = a + b + c + d $$
+it can be calculated as follows:
+$$ RRR = \frac{a*n}{(a+c)*(a+b)}$$
+Calculate RRR:
+```{r eval = TRUE}
+rrr_c_fun <- function(record){
+        a <- record[["a"]]
+        b <- record[["b"]]
+        c <- record[["c"]]
+        d <- record[["d"]]
+        n <- a+b+c+d
+        rrr <- (a*n)/((a+c)*(a+b))
+        return(rrr)
+}
+
+rrr_c <- cont %>% select(a,b,c,d) %>% apply(., MARGIN = 1, FUN = rrr_c_fun)
+
+rrr <- cbind(cont[,1:2], received_cases = cont[,3], rrr_c = rrr_c)
+```
+#### Cut-off
+"A cut-off value of 2 could be used"$^{2}$
+
+I did not find a preexisting function that calculates the RRR, therefore i will just use the calculated results.
+```{r eval = TRUE}
+rrr_sig <- rrr %>% filter(rrr_c >= 2) %>% group_by(Product) %>% arrange(desc(rrr_c), .by_group = TRUE)
+kable(rrr_sig, digits = 2)
+```
+
+#### Confidence Interval
+
+We can also calculate the confidence interval (CI) for the RRR value, via its standard deviation (sd).
+
+The standard deviation is calculated as follows:
+$$ sd = \sqrt{\frac{c}{a*(a+c)} + \frac{c+d}{n(a+b)}} $$
+
+And the 95% Confidence Interval as:
+
+$$ CI = e ^{(ln RRR ± 1.96*sd)} $$
+Calculate the standard deviation:
+```{r eval = TRUE}
+rrr_sd_c_fun <- function(record){
+        a <- record[["a"]]
+        b <- record[["b"]]
+        c <- record[["c"]]
+        d <- record[["d"]]
+        n <- a + b + c + d
+        sd <- sqrt(c/(a*(a+c))+(c+d)/(n*(a+b)))
+        return(sd)
+}
+
+rrr_sd_c <- cont %>% select(a, b, c, d) %>% apply(., MARGIN = 1, FUN = rrr_sd_c_fun)
+
+rrr_ci <- cbind(rrr, rrr_sd_c = rrr_sd_c)
+```
+
+Calculate the confidence interval:
+```{r eval = TRUE}
+#lower confidence interval
+rrr_lci_c_fun <- function(record) {
+        rrr <- record[["rrr_c"]]
+        sd <- record[["rrr_sd_c"]]
+        lci <- exp(log(rrr)-1.96*sd)
+        return(lci)
+}
+
+rrr_lci_c <- rrr_ci %>% select(rrr_c, rrr_sd_c) %>% apply(., MARGIN = 1, FUN = rrr_lci_c_fun)
+
+#upper confidence interval
+rrr_uci_c_fun <- function(record) {
+        rrr <- record[["rrr_c"]]
+        sd <- record[["rrr_sd_c"]]
+        uci <- exp(log(rrr)+1.96*sd) 
+        return(uci)
+}
+
+rrr_uci_c <- rrr_ci %>% select(rrr_c, rrr_sd_c) %>% apply(., MARGIN = 1, FUN = rrr_uci_c_fun)
+
+rrr_ci <- cbind(rrr, rrr_lci_c = rrr_lci_c, rrr_uci_c = rrr_uci_c)
+```
+
+Now filter the records for the lower confidence interval being >= 1 
+```{r eval = TRUE}
+rrr_ci_sig <- rrr_ci %>% filter(rrr_lci_c >= 1) %>% group_by(Product) %>% arrange(desc(rrr_lci_c), .by_group = TRUE)
+kable(rrr_ci_sig, digits = 2)
+```
+
+Plot:
+```{r eval = TRUE, out.width = "150%"}
+rrr_ci_sig %>% ggplot(., aes(x = paste(Product, Event, sep = " - "), y = rrr_c, fill = Product)) +
+        geom_bar(stat = "identity") +
+        geom_errorbar(aes(x = paste(Product, Event, sep = " - "), ymin = rrr_lci_c, ymax = rrr_uci_c)) +
+        scale_y_log10() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 0.99, vjust = 0.99)) +
+        labs(title = "Potential Signals detected using RRR") +
+        xlab(label = "Product Event Pairs") +
+        ylab(label = "RRR") +
+        geom_text(aes(y = rrr_c, x = paste(Product, Event, sep = " - "), label = format(rrr_c, digits = 2)), size = 3, nudge_y = 0.07) +
+        geom_text(aes(y = rrr_lci_c, x = paste(Product, Event, sep = " - "), label = format(rrr_lci_c, digits = 2)), size = 3, nudge_y = -0.05) +
+        theme(plot.margin = margin(0.2, 0.2, 0.2, 1, "cm")) +
+        scale_fill_grey(start = 0.3)
+```
+
+Compared to using rrr > 2 as cut-off, here we get only 14 potential signals
+instead of the 20 above.
+
+#### Interpretation
+
+For the product event pairs above we are at least 95 % sure that there is
+an association between application of the product and the event. The best guess of the
+strength of the association (with this method) is the rrr_c value.
+
+### Proportional Reporting Ratio (PRR)
+
+"This is analogous to a relative risk, but applied to spontaneous report data, 
+and therefore with associated weaker inferential capability [...]"$^{1}$\
+
+The formula for the PRR value is as follows:
+$$PRR = \frac{a/(a + b)}{c/(c + d)} $$
+Calculate PRR value:
+```{r eval = TRUE}
+PRR <- cont %>% transmute(., PRR = (a/(a+b))/(c/(c+d))) %>% cbind(cont[,c("Product", "Event", "a")], .)
+```
+
+#### Cut-off
+
+"Routinely, a cut off value of 2 is used to identify signals."$^{2}$\
+
+Filter for records with PRR >= 2 and display them:
+```{r eval = TRUE}
+colnames(PRR) <- c("Product", "Event", "Received Cases", "PRR")
+PRR_sig <- PRR %>% filter(PRR >= 2) %>% group_by(Product) %>% arrange(desc(PRR), .by_group = TRUE)
+kable(PRR_sig, digits = 2)
+```
+There are some product event pairs, that are included where there was only one 
+received case.
+
+#### Confidence Interval
+
+We can also calculate the confidence interval (CI) for the PRR value, via its standard deviation (sd).
+
+The standard deviation is calculated as follows:
+$$ sd = \sqrt{\frac{c}{a*(a+c)} + \frac{d}{b*(b+d)}} $$
+
+And the 95% confidence interval as:
+
+$$ CI = e ^{(ln PRR ± 1.96*sd)} $$
+Calculate the standard deviation:
+```{r eval = TRUE}
+prr_sd_c_fun <- function(record){
+        a <- record[["a"]] %>% as.numeric
+        b <- record[["b"]] %>% as.numeric
+        c <- record[["c"]] %>% as.numeric
+        d <- record[["d"]] %>% as.numeric
+        sd <- sqrt(c/(a*(a+c))+d/(b*(b+d)))
+        return(sd)
+}
+
+prr_sd_c <- cont %>% apply(., MARGIN = 1, FUN = prr_sd_c_fun)
+
+PRR_CI <- cbind(PRR, prr_sd_c = prr_sd_c)
+```
+And the confidence interval:
+```{r eval = TRUE}
+#lower confidence interval
+prr_lci_c_fun <- function(record) {
+        PRR <- record[["PRR"]]
+        sd <- record[["prr_sd_c"]]
+        lci <- exp(log(PRR)-1.96*sd)
+        return(lci)
+}
+
+prr_lci_c <- PRR_CI %>% select(PRR, prr_sd_c) %>% apply(., MARGIN = 1, FUN = prr_lci_c_fun)
+
+#upper confidence interval
+prr_uci_c_fun <- function(record) {
+        PRR <- record[["PRR"]]
+        sd <- record[["prr_sd_c"]]
+        uci <- exp(log(PRR)+1.96*sd) 
+        return(uci)
+}
+
+prr_uci_c <- PRR_CI %>% select(PRR, prr_sd_c) %>% apply(., MARGIN = 1, FUN = prr_uci_c_fun)
+
+PRR_CI <- cbind(PRR_CI, prr_lci_c = prr_lci_c, prr_uci_c = prr_uci_c)
+```
+
+Now filter for the records with lci >= 1 and plot the results:
+```{r eval = TRUE, out.width = "150%"}
+PRR_CI_sig <- PRR_CI %>% filter(prr_lci_c >= 1) %>% group_by(Product) %>% arrange(desc(prr_lci_c), .by_group = TRUE)
+
+PRR_CI_sig %>% ggplot(., aes(x = paste(Product, Event, sep = " - "), y = PRR, fill = Product)) +
+        geom_bar(stat = "identity") +
+        geom_errorbar(aes(x = paste(Product, Event, sep = " - "), ymin = prr_lci_c, ymax = prr_uci_c)) +
+        scale_y_log10() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 0.99, vjust = 0.99)) +
+        labs(title = "Potential Signals detected using PRR") +
+        xlab(label = "Product Event Pairs") +
+        ylab(label = "PRR") +
+        geom_text(aes(y = PRR, x = paste(Product, Event, sep = " - "), label = format(PRR, digits = 2)), size = 3, nudge_y = 0.07) +
+        geom_text(aes(y = prr_lci_c, x = paste(Product, Event, sep = " - "), label = format(prr_lci_c, digits = 2)), size = 3, nudge_y = -0.05) +
+        theme(plot.margin = margin(0.2, 0.2, 0.2, 1, "cm")) +
+        scale_fill_grey(start = 0.3)
+```
+
+#### Interpretation
+
+The probability, that the confidence interval contains the true value of PRR and 
+that therefore there is an association between the
+administration of the product and the event is >= 95% for all the product event 
+pairs with a lower confidence interval (lci) over 1.\
+The PRR value gives the best estimate with this method about how strong the association might be.
+
+Taking the lower confidence interval as a cut-off allowed to eliminate 6 product
+event pairs compared to taking the cut-off for PRR >= 2 as done above.
+
+The results using RRR and PRR are very similar.
+
+### ROR
+
+"An obvious alternative [to PRR] is to use an odds ratio (ad/bc), sometimes
+referred to as a “reporting odds ratio,” or ROR. 
+This has slightly more desirable statistical properties than a PRR [...]
+but will be very similar in magnitude since in most circumstances b >> a
+and d >> c, and it is questionable whether this has any practical impact on routine pharmacovigilance"
+$^{1}$\
+
+The ROR can be calculated as follows:
+$$ROR = \frac{ad}{bc} $$
+Calculate ROR value:
+```{r eval = TRUE}
+ROR <- cont %>% transmute(., ROR = (a*d)/(b*c)) %>% cbind(cont[,c("Product", "Event", "a")], .)
+colnames(ROR) <- c("Product", "Event", "Received Cases", "ROR")
+```
+
+Create Table with results for PRR and ROR and display it:
+```{r eval = TRUE}
+meas_disp <- cbind(PRR, ROR = ROR$ROR)
+kable(head(meas_disp), digits = 2)
+```
+The results for PRR and ROR are indeed very similar.
+
+### Fishers exact Test
+
+To calculate the p-value and the confidence interval of the ROR we will use Fishers exact test.
+It can be seen as alternative to the $\chi^{2}$ test we had used above. Fishers exact test is to be
+used, whenever there is one value <5 in the contingency table. In our case, this
+is the case for some product event pairs, where a < 5.
+
+We will use the function stats::fisher.test, which takes a contingency table in the following form:
+```{r}
+##              D       nD
+## ADR          a       b
+## nADR         c       d
+```
+
+Therefore, we have to create this table before applying the function on it.
+Try this for one record:
+```{r eval = TRUE}
+cont_fish <- data.frame(t(cont[1,c(3, 5)]), t(cont[1,c(4, 6)]))
+colnames(cont_fish) <- c("D", "nD")
+```
+
+Apply the function and display the results:
+```{r eval = TRUE}
+result_fish <- fisher.test(cont_fish)
+result_fish
+```
+Extract values from the result:
+```{r eval = TRUE}
+a <- c(result_fish[["p.value"]])
+print(a)
+result_fish[["conf.int"]][1:2]
+result_fish[["estimate"]][["odds ratio"]]
+```
+
+Write a for loop to run over all of the data:
+```{r eval = TRUE}
+#set up dataframe to store results
+fish_f <- data.frame(matrix(ncol = 4,nrow = 0))
+
+for (i in 1:37) {
+        cont_fish <- data.frame(t(cont[i,c(3, 5)]), t(cont[i,c(4, 6)]))
+        colnames(cont_fish) <- c("D", "nD")
+        result <- fisher.test(cont_fish)
+        result_val <- c(result[["p.value"]], result[["conf.int"]][1], 
+                        result[["conf.int"]][2], result[["estimate"]][["odds ratio"]])
+        fish_f <- rbind(fish_f, result_val)
+}
+
+fish_f <- cbind(cont[,1:3], fish_f)
+colnames(fish_f) <- c("Product", "Event", "Received Cases", "p.val_fish", "lci_fish", "uci_fish", "ROR_fish")
+```
+
+Compare the calculated ROR to the value calculated above "by hand":
+```{r eval = TRUE}
+cbind(ROR[,1:3], ROR_c = ROR[,4], ROR_fish = fish_f[,"ROR_fish"]) %>% head() %>% kable(., digits = 2)
+```
+The values are the same.\
+
+#### Cut-off
+
+"As with the PRR [...], a ROR value of 2 can be used as threshold.
+However, usually the lower and upper bounds of the confidence interval of ROR
+are instead used [...]. The confidence interval must not cross the value 1
+for statistical significance."$^{2}$\
+
+Show these product event pairs.
+```{r eval = TRUE, out.width = "150%"}
+fish_f_sig <-  fish_f %>% group_by(Product) %>% arrange(desc(lci_fish), .by_group = TRUE) %>% filter(lci_fish >= 1)
+#kable(fish_f_sig, digits = c(1,1,1,4,2,2,2))
+
+fish_f_sig %>% ggplot(., aes(x = paste(Product, Event, sep = " - "), y = ROR_fish, fill = Product)) +
+        geom_bar(stat = "identity") +
+        geom_errorbar(aes(x = paste(Product, Event, sep = " - "), ymin = lci_fish, ymax = uci_fish)) +
+        scale_y_log10() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 0.99, vjust = 0.99)) +
+        labs(title = "Potential Signals detected using Fishers exact test") +
+        xlab(label = "Product Event Pairs") +
+        ylab(label = "ROR") +
+        geom_text(aes(y = ROR_fish, x = paste(Product, Event, sep = " - "), label = format(ROR_fish, digits = 2)), size = 3, nudge_y = 0.07) +
+        geom_text(aes(y = lci_fish, x = paste(Product, Event, sep = " - "), label = format(lci_fish, digits = 2)), size = 3, nudge_y = -0.05) +
+        theme(plot.margin = margin(0.2, 0.2, 0.2, 1, "cm")) +
+        scale_fill_grey(start = 0.3)
+```
+
+#### Interpretation
+
+The probability, that the confidence interval contains the true value of ROR and 
+that therefore there is an association between the
+administration of the product and the event is >= 95% for all the product event 
+pairs with a lower confidence interval (lci) over 1.\
+The ROR value gives the best estimate from the data about how strong the association might be.\
+
+### Bayesian Confidence Propagation Neural Network (BCPNN)
+
+This method is based on the Information Component. The confidence Interval of the Information Component
+shrinks over time with increasing amount of data.$^{2}$
+
+The mdsstat package contains a function that calculates the Information component
+via a Bayesian Confidence Propagation Neural Network: bcpnn()
+
+"Test on device-events using a one-layer BCPNN as proposed by Bate et al (1998), which assumes beta-distributed probabilities and a normal approximation of the variance of the information component (IC)."$^{3}$
+
+This function takes a dataframe containing the values of the contingency tables and a column 
+called "times" (= "Unique times of class Date").
+As I understand this for the case that one has a contingency table for more then one point in time.
+In the default it is not necessary to have values for several times, therefore the
+dataframe only needs one record and time can be set to 1.\
+
+The function mdsstat::ror() takes the same input.
+In order to test if the above is correct we will test the ror() function and compare the results
+to the calculations above.\
+
+Load the mdsstat library and its dependencies:
+```{r eval = TRUE, error=FALSE, warning=FALSE, message=FALSE}
+library(mds)
+library(mdsstat)
+```
+
+Create dataframe for Input:
+```{r eval = TRUE}
+cont_mdsstat <- cont[,1:2]
+cont_mdsstat$time <- 1
+cont_mdsstat <- cbind(cont_mdsstat, cont[,3:6])
+colnames(cont_mdsstat) <- c("Product", "Event", "time", "nA", "nB", "nC", "nD")
+```
+
+Run the ror() function:
+```{r eval = TRUE}
+ror_test <- cont_mdsstat[cont_mdsstat$Product == "jan" & cont_mdsstat$Event == "Pulmonary fibrosis",3:7] %>% bcpnn()
+ror_test[["result"]][["statistic"]][[1]]
+```
+This is the same as we calculated.\
+
+Now try running it over the whole dataframe:
+```{r eval = TRUE}
+ror_mdsstat <- data.frame(matrix(ncol = 1, nrow = 0))
+colnames(ror_mdsstat) <- c("ROR")
+
+for (i in 1:37) {
+        result <- cont_mdsstat[i,3:7] %>% ror()
+        result_stat <- result["result"] %>% unlist %>% .[[1]] #unwrap the result
+        ror_mdsstat <- rbind(ror_mdsstat, result_stat)
+}
+```
+This works.\
+
+Calculate the Information Component for all product-event pairs:
+```{r eval = TRUE}
+ic_mdsstat <- data.frame(matrix(ncol = 4, nrow = 0))
+colnames(ic_mdsstat) <- c("IC", "p-val", "lcl", "ucl")
+
+for (i in 1:37) {
+        result <- cont_mdsstat[i,3:7] %>% bcpnn()
+        ic_mdsstat[i,"IC"] <- result[["result"]][["statistic"]][[1]]
+        ic_mdsstat[i,"p-val"] <- result[["result"]][["p"]][[1]]
+        ic_mdsstat[i,"lcl"] <- result[["result"]][["lcl"]]
+        ic_mdsstat[i,"ucl"] <- result[["result"]][["ucl"]]
+}
+
+ic_mdsstat <- cbind(cont_mdsstat[,1:2], ic_mdsstat)
+```
+
+#### Cut-off 
+
+We will filter for the records for p > 0.05.\
+
+Display these results:
+```{r eval = TRUE, out.width = "150%"}
+ic_mdsstat_sig <- ic_mdsstat %>% filter(`p-val` < 0.05) %>% group_by(Product) %>% 
+        arrange(desc(IC), .by_group = TRUE)
+
+ic_mdsstat_sig %>% ggplot(., aes(x = paste(Product, Event, sep = " - "), y = IC, fill = Product)) +
+        geom_bar(stat = "identity") +
+        geom_errorbar(aes(x = paste(Product, Event, sep = " - "), ymin = lcl, ymax = ucl)) +
+        scale_y_log10() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 0.99, vjust = 0.99)) +
+        labs(title = "Potential Signals detected using BCPNN") +
+        xlab(label = "Product Event Pairs") +
+        ylab(label = "IC") +
+        geom_text(aes(y = IC, x = paste(Product, Event, sep = " - "), label = format(IC, digits = 2)), size = 3.5, nudge_y = 0.05) +
+        geom_text(aes(y = lcl, x = paste(Product, Event, sep = " - "), label = format(lcl, digits = 2)), size = 3.5, nudge_y = -0.04) +
+        theme(plot.margin = margin(0.2, 0.2, 0.2, 1, "cm")) +
+        scale_fill_grey(start = 0.3)
+```
+
+This method results in less potential signals, then the methods used so far.
+
+### Overview
+
+We will now create an overview over the findings from the different methods.
+In order to compare the significance levels of the results between the test we will 
+use the p-value. In some cases we have to calculate it from the confidence interval, 
+namely for the RRR and PRR.
+
+Write function to calculate the p-value:
+```{r eval = TRUE}
+pval <- function(est_lcl_ucl){
+        est <- est_lcl_ucl[[1]]
+        lcl <- est_lcl_ucl[[2]]
+        ucl <- est_lcl_ucl[[3]]
+        
+        SE <- (log(ucl) - log(lcl))/(2*1.96)
+        z <- log(est)/SE
+        p <- exp(-0.717*abs(z) - 0.416*(abs(z)^2))
+        return(p)
+}
+```
+Calculate the p-value for RRR:
+```{r eval = TRUE}
+rrr_ci_p <- rrr_ci %>% select(rrr_c, rrr_lci_c, rrr_uci_c) %>% apply(., 1, pval) %>% cbind(rrr_ci, pval = .)
+
+#control if the result is correct
+rrr_ci_p %>% filter(pval <= 0.05) %>% kable()
+rrr_ci_p %>% filter(pval >= 0.05) %>% kable()
+```
+Filtering for pval <= 0.05 gave us all the values, where the 95 % confidence interval
+excludes 1. => it seems to work correctly.
+
+Calculate the p-values for PRR:
+```{r eval = TRUE}
+#calculate the p value for RRR
+PRR_CI_p <- PRR_CI %>% select(PRR, prr_lci_c, prr_uci_c) %>% apply(., 1, pval) %>% cbind(PRR_CI, pval = .)
+
+#control if the result is correct
+PRR_CI_p %>% filter(pval <= 0.05) %>% kable()
+PRR_CI_p %>% filter(pval >= 0.05) %>% kable()
+```
+```{r eval = TRUE}
+rrr_ci_p %>% filter(pval <= 0.05) %>% kable()
+```
+
+Create a table with all p-values:
+```{r eval = TRUE}
+overview <- cbind(cont[,1:2], `Received Cases` = cont[,3], chi2 = chi2$pval_f, Fisher = fish_f$p.val_fish, RRR = rrr_ci_p$pval, PRR = PRR_CI_p$pval, BCPNN = ic_mdsstat$`p-val`)
+```
+In the product event pair "nos - Acute kidney injury" the test results 
+for RRR, PRR, Fishers exact test differed significantly from the null 
+hypothesis (that there is no association between Product and Event), but the
+effect was in the "wrong" direction. Therefore this should not
+be seen as a possible signal. We will add a remark concerning this to the graph below.
+
+We should also add remarks to the chi2 and Fishers exact test, according to the number of received cases.
+
+Display the results via heatmap:
+```{r eval = TRUE, message=FALSE}
+#load library to reformat the data in the necessary way
+library(reshape2)
+
+#melt
+melt_overview <- melt(overview, id.vars = c("Product", "Event", "Received Cases"))
+
+#create bins
+bin_pval <- function(pval){
+        cut(pval, breaks = c(1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001, 0))
+}
+melt_overview <- melt_overview %>% select(value) %>% apply(., 1, bin_pval) %>% cbind(melt_overview, `Significance Level` = .)
+
+#add labels for remarks:
+melt_overview_l <- melt_overview %>% cbind(., Label = rep("", 185))
+melt_overview_l$Label <- as.character(melt_overview_l$Label)
+
+melt_overview_l[melt_overview_l$Product == "nos" & melt_overview_l$Event == "Acute kidney injury" & melt_overview_l$variable != "BCPNN", "Label"] <- "x"
+melt_overview_l[melt_overview_l$`Received Cases` >= 5 & melt_overview_l$variable == "Fisher", "Label"] <- "+"
+melt_overview_l[melt_overview_l$`Received Cases` < 5 & melt_overview_l$variable == "chi2", "Label"] <- "-"
+```
+
+```{r eval = TRUE, out.width = "150%"}
+melt_overview_l %>% ggplot(aes(x = variable, y = paste(Product, Event, sep = " - "))) +
+        geom_tile(aes(fill = `Significance Level`), colour = "white") +
+        scale_fill_manual(breaks = c("(0.5,1]", "(0.1,0.5]", "(0.05,0.1]", "(0.01,0.05]", "(0.005,0.01]", "(0.001,0.005]", "(0,0.001]"),
+                        values = c("darkred", "red", "pink", "lightgreen", "green2", "green3", "green4")) +
+        xlab("Methods") +
+        ylab("Product Event Pairs") +
+        geom_text(aes(x = variable, y = paste(Product, Event, sep = " - "), label = Label), size = 2.5, nudge_y = 0.2)+
+        labs(caption =  "- value < 5 in contingency table\n+ value >= 5 in contingency table\nx No possible signal, as association in wrong direction")
+```
+
+## Discussion
+
+### Comparison beween Results of Different Tests
+
+We can see in the graph above that the first 4 Methods ($\chi^{2}$, 
+Fishers exact test, RRR and PRR) give almost in all cases concurring results 
+(possible signal/no possible signal). The only exception is "pfi - Renal failure", where
+only Fishers exact test yields a p value <0.05.\
+
+BCPNN yielded more conservative results, meaning that for some product event pairs, 
+where the other methods gave a significant result (at the 0.05 level), it did not confirm this 
+(e.g. for "nos - Erythema multiforme", "mod - Erythema multiforme", "jan - Pulmonary Fibrosis", 
+"jan - Deafness", "jan - Anaphylactic shock", "pfi - Pulmonary arterial hypertension"), or gave a result
+with a lower significance level (e.g. "mod - Anaphylactic shock", "nos - Pulmonary fibrosis").
+This makes sense, wehn considering the following quote describing this method:\
+
+"[...] but it shrinks the estimate based
+on a “prior” assumption of no association between
+drug and event in the absence of data to the contrary.
+This weighting damps the observed/expected
+ratio towards the null value, and this dampening
+effect is increasingly inconsequential as data accumulate.
+The objective of this is to reduce false positives
+with limited data support and an inflated
+crude observed-to-expected ratio."$^{1}$\
+
+This would mean that these cases might have less information to work with => e.g.
+a smaller number of cases in the contingency tables.
+
+We can check if this hypothesis is correct, by calculating the mean for each field of the contingency table
+for the product event pairs that where rejected by BCPNN, and comparing them to 
+the means of the product event pairs that where confirmed by BCPNN:
+```{r}
+#rejected by bcpnn
+bcpnn_rej <- cont[c(9, 23, 35, 34, 33, 32),]
+#rejected by bcpnn
+bcpnn_conf <- cont[c(15, 17, 14, 2, 5, 26, 25),]
+#calculate means
+bcpnn_rej_m <- bcpnn_rej %>% select(a, b, c, d) %>% apply(., 2, function(x){mean(x) %>% round(., digits = 0)})
+bcpnn_conf_m <- bcpnn_conf %>% select(a, b, c, d) %>% apply(., 2, function(x){mean(x) %>% round(., digits = 0)})
+#display result
+rbind(bcpnn_rej_m, bcpnn_conf_m) %>% kable()
+```
+The result shows that for the product event pairs, that where "rejected" by 
+BCPNN the number of cases was generally smaller, then for the ones, that where "confirmed" by it.
+
+Another comparison to be made is between the results of $\chi^{2}$ and Fishers exact test.
+In most cases Fishers exact test yields results at a lower significance level.\
+Due to the often low numbers of a, it is probably in general more appropriate to use here.
+
+### Comparison between Results for Different Products
+
+The group "nos" contains cases that where reported with product as "a covid vaccine" 
+or a similar expression, therefore it contains a mixture of cases the three products.
+
+The following events where found to be possible signals for "nos" by BCPNN:
+
+- Pulmonary fibrosis
+
+- Deafness
+
+Deafness was also found for Pfizer and Moderna. Therefore it makes sense that this
+association could also be visible in the nos group (Also because Moderna and Pfizer 
+are the Vaccines that where most used in the US).
+
+Pulmonary Fibrosis was not found for any of the products by BCPNN. 
+With the other tests it was only found for Janssen. It is possible that BCPNN
+rejected it due to a low number of available cases with Janssen. But the 
+association might be significant enough that it is still detectable in the nos group
+and not rejected by BCPNN due to the higher number of available cases therein.
+
+To confirm this we can look at the numbers of cases in the database and the 
+exact p values for these two records:
+```{r}
+cbind(overview[c(5, 35),1:3], cont[c(5, 35), 4:6], overview[c(5, 35),4:8]) %>% kable()
+```
+We see that we have overall lower case numbers for Janssen. The p values for the
+test other then BCPNN are all lower for Janssen then for nos, suggesting that the association
+is diluted in the nos group.
+
+The following events where found to be possible signals for "nos" by the other tests:
+
+- Pulmonary fibrosis (as already discussed)
+ 
+- Erythema Multiforme
+ 
+- Deafness
+
+Erythema Multiforme was only found for Moderna (for the other two products there where not even any cases)
+If we look at the casenumbers and the test results for these two product event pairs, we see
+again that the association is diluted in the nos group. The number of cases are very similar between the two groups,
+except for c (cases with the drug but another ADR), which leads to less significant results in the tests.
+```{r}
+cbind(overview[c(9, 23),1:3], cont[c(9, 23), 4:6], overview[c(9, 23),4:8]) %>% kable()
+```
+Deafness was found in all three other products (with the highest significance in Moderna,
+then Janssen and Pfizer).
+```{r}
+cbind(overview[c(2, 14, 25, 33),1:3], cont[c(2, 14, 25, 33), 4:6], overview[c(2, 14, 25, 33),4:8]) %>% kable()
+```
+As we see in the table above nos shows here result with higher significance then Pfizer,
+which is probably due to the strong association of Moderna, which is again also found in a
+diluted manner in nos.
+Here again we see that BCPNN assessed the result for nos as more significant then for Janssen, which
+goes contrary to RRR and PRR. This is probably again due to the lower number of available cases for Janssen.
+
+A mentioned previously for nos - Acute kidney injury we got p-values that would suggest
+significance of the results, but the found association was in the wrong direction, 
+meaning there where less cases reported then would have been expected (as compared to the
+number of cases received in the whole database.)
+```{r}
+cbind(overview[1,1:3], cont[1, 4:6], overview[1,4:8]) %>% kable()
+```
+### Conclusion
+
+As measures of disproportionality assume underreporting to be similar for the database in general and
+the product in question, it can have an influence if this is not the case.\
+In the case of covid vaccines I would assume that underreporting was lower, as the vaccines
+(and also related policy measures) received a lot of media attention and where discussed
+thoroughly. Therefore I think, that more events where reported than usual.\
+This would mean that the associations found here would be overstated.
+
+In practice the results above would then lead to further investigations of the 
+associated cases, before a decision would be made to regard it as signal or not.
+
+From the results here I consider especially the Anaphylactic Reaction/Shock as a possible signal, 
+as this is a known side effect of vaccinations in general and is also biologically plausible.
+For example if the disinfection of the skin before the vaccination is not done properly, it 
+is possible that pathogens or other substances could be introduced into the body, 
+which can lead to anaphylactic reactions.
+
+### Possible improvements
+
+When applying the different tests it was not considered, that the we only considered the two possibilities:\
+- There is a positive association between drug administration and occurrence of an event\
+- There is no association between drug administration and occurrence of an event\
+
+and not:\
+- There is a negative association between drug administration and occurrence of an event\
+
+Therefore the test should have been applied as one tailed. This could have been specified for example
+for Fishers exact test in the function  as follows: fisher.test(alternative = "greater").
+As I understand this would have improved the power of the respective tests.
+
+# Appendix
+
+## Citations
+
+$^{1}$ Chapter 20 "Quantitative Signal Detection and Analysis in Pharmacovigilance" of "MANN’S PHARMACOVIGILANCE THIRD EDITION" edited by E. ANDREWS and N. MOORE, 2014 by John Wiley & Sons, Ltd.
+
+$^{2}$ "Primer on Disproportionality Analysis" Version: 2018-10-16 by Ruwen Böhm (Uni Kiel)
+
+$^{3}$  RDocumentation for mdsstat::bcpnn function
+
+## Drop the created tables from the FEARS Database
+
+```{sql connection = "faers", eval = FALSE}
+drop if exists covac_nos_d;
+drop if exists covac_nos_g;
+
+drop if exists covac_pfi_d;
+drop if exists covac_pfi_g;
+
+drop if exists covac_mod_d;
+drop if exists covac_mod_g;
+
+drop if exists covac_jan_d;
+drop if exists covac_jan_g;
+
+drop if exists covac_ast_d;
+drop if exists covac_ast_g;
+
+drop if exists ast_label;
+drop if exists mod_label;
+drop if exists pfi_label;
+drop if exists jan_label;
+drop if exists nos_label;
+
+drop if exists selected_events;
+drop if exists cont_res;
+```
+
+## Create Tables: Drugs
+
+- Moderna
+
+```{sql connection = "faers", eval = FALSE}
+create temporary table covac_mod_all
+select * from drugs
+where medicinalproduct in 
+	(select * from covid_vac_mod);
+```
+
+
+```{sql connection = "faers", eval = FALSE}
+create table covac_mod_d    
+select * from covac_mod_all
+where drugcharacterization = 1;
+```
+
+
+```{sql connection = "faers", eval = FALSE}
+drop table if exists covac_mod_all;
+```
+
+
+- Pfizer/BioNTech
+
+```{sql connection = "faers", eval = FALSE}
+create temporary table covac_pfi_all
+select * from drugs
+where medicinalproduct in 
+	(select * from covid_vac_pfi);
+```
+
+
+```{sql connection = "faers", eval = FALSE}
+create table covac_pfi_d    
+select * from covac_pfi_all
+where drugcharacterization = 1;
+```
+
+
+```{sql connection = "faers", eval = FALSE}
+drop table if exists covac_pfi_all;
+```
+
+
+- Jansen
+
+```{sql connection = "faers", eval = FALSE}
+create temporary table covac_jan_all
+select * from drugs
+where medicinalproduct in 
+	(select * from covid_vac_jan);
+```
+
+
+```{sql connection = "faers", eval = FALSE}
+create table covac_jan_d    
+select * from covac_jan_all
+where drugcharacterization = 1;
+```
+
+
+```{sql connection = "faers", eval = FALSE}
+drop table if exists covac_jan_all;
+```
+
+
+- AstraZeneca
+
+```{sql connection = "faers", eval = FALSE}
+create temporary table covac_ast_all
+select * from drugs
+where medicinalproduct in 
+	(select * from covid_vac_ast);
+```
+
+
+```{sql connection = "faers", eval = FALSE}
+create table covac_ast_d    
+select * from covac_ast_all
+where drugcharacterization = 1;
+```
+
+
+```{sql connection = "faers", eval = FALSE}
+drop table if exists covac_ast_all;
+```
+
+## Create Tables: General
+
+Extract the data for these cases from the general table analogous to above.\
+
+- NOS
+
+```{sql connection = "faers", eval = FALSE}
+create table covac_nos_g
+select * from general
+where safetyreportid in 
+	(select distinct safetyreportid from covac_nos_d);
+```
+
+- Moderna
+
+```{sql connection = "faers", eval = FALSE}
+create table covac_mod_g
+select * from general
+where safetyreportid in 
+	(select distinct safetyreportid from covac_mod_d);
+```
+
+- Pfizer/BioNTech
+
+```{sql connection = "faers", eval = FALSE}
+create table covac_pfi_g
+select * from general
+where safetyreportid in 
+	(select distinct safetyreportid from covac_pfi_d);
+```
+
+- Janssen
+
+```{sql connection = "faers", eval = FALSE}
+create table covac_jan_g
+select * from general
+where safetyreportid in 
+	(select distinct safetyreportid from covac_jan_d);
+```
+
+- AstraZeneca
+
+```{sql connection = "faers", eval = FALSE}
+create table covac_ast_g
+select * from general
+where safetyreportid in 
+	(select distinct safetyreportid from covac_ast_d);
+```
+
+
+## Get Selected Events
+
+#jan
+
+```{sql connection = "faers", eval = FALSE}
+drop table if exists jan_label;
+create table jan_label (
+	jan_label_id int not null,
+	jan_label_def varchar(100),
+    primary key (jan_label_id));
+
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/jan_label.csv' 
+INTO TABLE jan_label 
+FIELDS TERMINATED BY ';' 
+ENCLOSED BY ''
+LINES TERMINATED BY '\r\n'
+IGNORE 1 ROWS;
+```
+
+count of cases in scope per events
+
+```{sql connection = "faers", eval = FALSE}
+insert selected_events(PT)
+with reactioncounts as (
+	select reactionmeddrapt, count(reactionmeddrapt) as `count`
+	from reactions
+	where safetyreportid in 
+		(select distinct safetyreportid from covac_jan_d)
+	group by reactionmeddrapt
+	order by count(reactionmeddrapt) desc)
+select reactionmeddrapt from reactioncounts
+where reactionmeddrapt in (select dme_name from dme)
+and reactionmeddrapt not in (select jan_label_def from jan_label)
+and `count` >= 4;
+```
+no events added
+
+#mod
+
+```{sql connection = "faers", eval = FALSE}
+drop table if exists mod_label;
+create table mod_label (
+	mod_label_id int not null,
+	mod_label_def varchar(100),
+    primary key (mod_label_id));
+
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/mod_label.csv' 
+INTO TABLE mod_label 
+FIELDS TERMINATED BY ';' 
+ENCLOSED BY ''
+LINES TERMINATED BY '\r\n'
+IGNORE 1 ROWS;
+```
+
+count of cases in scope per events
+
+```{sql connection = "faers", eval = FALSE}
+insert selected_events(PT)
+with reactioncounts as (
+	select reactionmeddrapt, count(reactionmeddrapt) as `count`
+	from reactions
+	where safetyreportid in 
+		(select distinct safetyreportid from covac_mod_d)
+	group by reactionmeddrapt
+	order by count(reactionmeddrapt) desc)
+select reactionmeddrapt from reactioncounts
+where reactionmeddrapt in (select dme_name from dme)
+and reactionmeddrapt not in (select mod_label_def from mod_label)
+and `count` >= 4;
+```
+9 events added
+
+
+#pfi
+
+```{sql connection = "faers", eval = FALSE}
+drop table if exists pfi_label;
+create table pfi_label (
+	pfi_label_id int not null,
+	pfi_label_def varchar(100),
+    primary key (pfi_label_id));
+
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/pfi_label.csv' 
+INTO TABLE pfi_label 
+FIELDS TERMINATED BY ';' 
+ENCLOSED BY ''
+LINES TERMINATED BY '\r\n'
+IGNORE 1 ROWS;
+```
+
+count of cases in scope per events
+
+```{sql connection = "faers", eval = FALSE}
+insert selected_events(PT)
+with reactioncounts as (
+	select reactionmeddrapt, count(reactionmeddrapt) as `count`
+	from reactions
+	where safetyreportid in 
+		(select distinct safetyreportid from covac_pfi_d)
+	group by reactionmeddrapt
+	order by count(reactionmeddrapt) desc)
+select reactionmeddrapt from reactioncounts
+where reactionmeddrapt in (select dme_name from dme)
+and reactionmeddrapt not in (select pfi_label_def from pfi_label)
+and `count` >= 4;
+```
+
+
+## Test calculation of measures of disproportionality
+
+Before I got all the data for the contingency tables for the selected events I
+first got some single values for some product event pairs and did some calculations:\
+
+start with Myocarditis for astra zeneca
+it was in the media that the pfizer vaccine can cause myocarditis (especially in young men)
+
+what territory and which timeperiod?
+territory: one with lots of cases
+time period: since its on the market in respective territory?
+
+how much data is there per country? 
+```{sql connection = "faers", eval = FALSE}
+select occurcountry, count(distinct safetyreportid) from `general`
+where safetyreportid in 
+	(select distinct safetyreportid
+	from covac_ast_d)
+group by occurcountry
+order by count(occurcountry) desc;
+```
+many cases from GB almost 800
+
+first vacc outside of trial from 04.01.2022
+what is the distribution of dates of administration (drugstartdate)
+```{sql connection = "faers", eval = FALSE}
+select drugstartdate, count(distinct g.safetyreportid) from covac_ast_d d
+join `general` g on d.safetyreportid = g.safetyreportid
+where occurcountry = "GB"
+group by drugstartdate
+order by drugstartdate desc;
+```
+there are some cases from feb 2020. Check if they are from studies 
+there are many missing values
+
+
+```{sql connection = "faers", eval = FALSE}
+select d.drugstartdate, g.receivedate, l.reporttype_def from covac_ast_d d
+join `general` g on d.safetyreportid = g.safetyreportid
+join lu_reporttype l on g.reporttype = l.reporttype
+where g.occurcountry = "GB"
+and d.drugstartdate like "2020%";
+```
+all are spontaneous reports and where received in FEB 2021 (after the reported drugstartdates) => the reported dates are wrong
+
+we take as period the time after 31.12.2020 => include cases that wher received on 31.12.2020 or after.
+receivedate = date of first receipt by FDA
+receiptdate = date of latest receipt by FDA (latest version)
+
+as not every case has information about drugstartdate it would not be possible to
+use this to define the period
+therefore I will use the receivedate to define the period
+
+when was the first astra zeneca case from GB received by FDA?
+```{sql connection = "faers", eval = FALSE}
+select g.receivedate, count(distinct g.safetyreportid) from covac_ast_d d
+join `general` g on d.safetyreportid = g.safetyreportid
+where occurcountry = "GB"
+group by receivedate
+order by receivedate desc;
+```
+one case was received on 20201211
+
+```{sql connection = "faers", eval = FALSE}
+select g.* from covac_ast_d d
+join `general` g on d.safetyreportid = g.safetyreportid
+where g.occurcountry = "GB"
+and g.receivedate = "20201211";
+```
+this must be a mistake, as the report is marked as spontaneous (which would be impossible) and the case event date is stated as 20210226
+
+we will take the administration of the first vaccine as startdate for the period => receivedate >= "20210104"
+
+get data for contingency table:
+=> 2x2 contingency table
+	+ Drug		- Drug
++ ADR	   a 		   b
+- ADR	   c		   d
+
+- + Drug + ADR
+```{sql connection = "faers", eval = FALSE}
+select count(safetyreportid) from reactions
+where safetyreportid in 
+	(select distinct g.safetyreportid from covac_ast_d d
+    join `general` g on d.safetyreportid = g.safetyreportid
+    where g.occurcountry = "GB"
+	and g.receivedate >= "20210104")
+and reactionmeddrapt = "Myocarditis";
+```
+2 cases
+
+- + Drug - ADR
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as 
+	(select distinct safetyreportid from covac_ast_d)
+select count(safetyreportid)
+from dist_cases;
+```
+1167 - 3 = 1164
+
+- - Drug + ADR
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as
+	(select distinct g.safetyreportid
+    from reactions r
+    join `general` g on r.safetyreportid = g.safetyreportid
+    where g.occurcountry = "GB"
+	and g.receivedate >= "20210104"
+    and r.reactionmeddrapt = "Myocarditis")
+select count(safetyreportid)
+from dist_cases;
+```
+74 - 3 = 71
+
+- - Drug - ADR => get total number of cases in DB and then calculate from there
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as
+	(select distinct safetyreportid
+    from `general`
+    where occurcountry = "GB"
+	and receivedate >= "20210104")
+select count(safetyreportid)
+from dist_cases;
+```
+38'492
+- Drug - ADR cases: 38'492 -2 -1'164 -71 = 37'255
+
+=> 2x2 contingency table
+			+ Drug		- Drug
++ ADR	   2 		   71
+- ADR	   1164		   37'255
+
+
+PRR (proportional reporting ratio) = (a/(a+b))/(c/(c+d))
+= (2/73)/(1164/38'419) = 0.90
+
+reporting odd ratio = ad/bc
+= 0.90
+
+repeat for myocarditis and pericarditis
+
+- + Drug + ADR
+```{sql connection = "faers", eval = FALSE}
+select count(safetyreportid) from reactions
+where safetyreportid in 
+	(select distinct g.safetyreportid from covac_ast_d d
+    join `general` g on d.safetyreportid = g.safetyreportid
+    where g.occurcountry = "GB"
+	and g.receivedate >= "20210104")
+and reactionmeddrapt in ("Myocarditis", "Pericarditis");
+```
+7 cases
+
+- + Drug - ADR
+1167 - 7 = 1160
+
+- - Drug + ADR
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as
+	(select distinct g.safetyreportid
+    from reactions r
+    join `general` g on r.safetyreportid = g.safetyreportid
+    where g.occurcountry = "GB"
+	and g.receivedate >= "20210104"
+    and r.reactionmeddrapt in ("Myocarditis", "Pericarditis"))
+select count(safetyreportid)
+from dist_cases;
+```
+122 - 7 = 115
+
+- - Drug - ADR
+3'210'899
+38'492 -7 -1'160 -115 = 37'210
+
+=> 2x2 contingency table
+	+ Drug		- Drug
++ ADR	   7 		   115
+- ADR	   1160		   37'210
+
+
+PRR (proportional reporting ratio) = (a/(a+b))/(c/(c+d))
+= (7/122)/(1164/38'419) = 1.90
+
+reporting odd ratio = ad/bc
+= 1.95
+
+=> granularity of the adverse reaction has quite an impact here.
+
+I will continue in R to write all the statements "en masse", as there are many statements needed
+I will also need to write the results of the querries into a results table in MySQL so I can export them later
+
+try again for pfizer in US
+how much data is there per country? 
+```{sql connection = "faers", eval = FALSE}
+select occurcountry, count(distinct safetyreportid) from `general`
+where safetyreportid in 
+	(select distinct safetyreportid
+	from covac_pfi_d)
+group by occurcountry
+order by count(occurcountry) desc;
+```
+US has most reports
+
+it came on market on 13.12.2021 => start of period
+
+- + Drug + ADR
+```{sql connection = "faers", eval = FALSE}
+select count(safetyreportid) from reactions
+where safetyreportid in 
+	(select distinct g.safetyreportid from covac_pfi_d d
+    join `general` g on d.safetyreportid = g.safetyreportid
+    where g.occurcountry = "US"
+	and g.receivedate >= "20201213")
+and reactionmeddrapt = "Myocarditis";
+```
+4 cases
+
+- + Drug - ADR
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as 
+	(select distinct safetyreportid from covac_pfi_d)
+select count(safetyreportid)
+from dist_cases;
+```
+3002 - 4 = 2998
+
+- - Drug + ADR
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as
+	(select distinct g.safetyreportid
+    from reactions r
+    join `general` g on r.safetyreportid = g.safetyreportid
+    where g.occurcountry = "US"
+	and g.receivedate >= "20201213"
+    and r.reactionmeddrapt = "Myocarditis")
+select count(safetyreportid)
+from dist_cases;
+```
+185 - 4 = 181
+
+- - Drug - ADR => get total number of cases in DB and then calculate from there
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as
+	(select distinct safetyreportid
+    from `general`
+    where occurcountry = "US"
+	and receivedate >= "20201213")
+select count(safetyreportid)
+from dist_cases;
+```
+1'177'910
+1'177'910 -4 -2998 -181 = 1'174'727
+
+	+ Drug		- Drug
++ ADR	   4 		   181
+- ADR	   2998		   1'177'910
+
+ROR = 8.68
+
+and now together with pericarditis
+
+- + Drug + ADR
+```{sql connection = "faers", eval = FALSE}
+select count(safetyreportid) from reactions
+where safetyreportid in 
+	(select distinct g.safetyreportid from covac_pfi_d d
+    join `general` g on d.safetyreportid = g.safetyreportid
+    where g.occurcountry = "US"
+	and g.receivedate >= "20201213")
+and reactionmeddrapt in ("Myocarditis", "Pericarditis");
+```
+9
+
++ Drug - ADR
+3002 - 9 = 2993
+
+- - Drug + ADR
+```{sql connection = "faers", eval = FALSE}
+with dist_cases as
+	(select distinct g.safetyreportid
+    from reactions r
+    join `general` g on r.safetyreportid = g.safetyreportid
+    where g.occurcountry = "US"
+	and g.receivedate >= "20201213"
+    and r.reactionmeddrapt in ("Myocarditis", "Pericarditis"))
+select count(safetyreportid)
+from dist_cases;
+```
+345 - 9 = 336
+
+- - Drug - ADR
+1'177'910
+1'177'910 -9 -2993 -336 = 1'174'572
+
+=> 2x2 contingency table
+	+ Drug		- Drug
++ ADR	   9 		   336
+- ADR	   2993		   1'174'572
+
+ROR = 10.5
+
