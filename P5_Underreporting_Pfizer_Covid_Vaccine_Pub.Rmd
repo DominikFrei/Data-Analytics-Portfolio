@@ -1,0 +1,1919 @@
+---
+title: "P5_Underreporting_Pfizer_Covid_Vaccine"
+author: "Dominik Frei"
+date: "08.04.2022 - 21.04.2022"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Abstract
+
+In this work I tried to find factors that might have influenced how many adverse events 
+per dose administered where reported to the FDA that are related with the Pfizer Corona Vaccine.
+I looked at the time period since the launch of the vaccine until the end of 2021 in the USA.\
+I used data from the FAERS database (Database containing information about reported cases of
+Adverse Events with Medicinal Products; FDA publishes this
+data and I had previously set up a MySQL database with all the reports from 2020 and 2021)
+and some datasets concerning covid vaccinations and numbers of cases and deaths, 
+which where published by the US government.\
+First I did some exploratory data analysis, where among other things, I tried to find out if
+there where more cases with the second administered dose then with the first one.\
+Then I fitted some linear regression models (simple, multiple and for an exponential relationship)
+to find possible correlations with the number of cases reported per dose administered.\
+The only finding was that the number of cases reported per dose administered decreased
+over time (probably in an exponential decay).
+
+## Resources
+
+- FAERS Database: years 2020 and 2021
+- dataset concerning Covid vaccines in the US: https://data.cdc.gov/Vaccinations/COVID-19-Vaccinations-in-the-United-States-Jurisdi/unsk-b7fc, accessed: 08.04.2022
+- dataset concerning Covid cases and deaths in the US: https://data.cdc.gov/Case-Surveillance/United-States-COVID-19-Cases-and-Deaths-by-State-o/9mfq-cb36, accessed on 14.04.2022
+
+## What I learned
+
+- Processing datetime data in R
+- Plotting with ggplot2
+- Fitting simple and multiple linear models (including transformations before fit, for exponential model)
+- Checking model assumptions for simple and multiple linear models
+
+## Duration
+
+- MySQL: 0.5 h
+- R: 37 h
+- Other (writing etc.): 7 h
+
+# Introduction
+
+Post marketing drug safety relies on spontaneous reports about adverse events
+with drugs. It is well established, that by far not all cases of such events are reported
+(there is underreporting) and that there is considerable variation in underreporting.
+For example there might be suddenly way more reports for a certain drug event pair, after
+there where reports about it in the media.\
+The covid vaccines and related adverse events got a lot of media attention, especially in the beginning.
+Here I will look more closely at the Pfizer vaccine in the US and try to find out what factors might
+have influenced its underreporting.
+
+# Glossary
+
+- Adverse Event: Negative event that might be related to use of a drug without a
+causal relation being suspected.
+- ADR (Adverse Drug Reaction): Adverse Event where a causal relation to the drug
+is suspected (by the reporter or the investigator)
+- Underreporting: Fact that many ADRs are not reported and are therefore
+missing from ADR databases.
+
+# Code
+
+## Set-up
+Set up connection to FAERS Database in MySQL:
+
+Library, MySQL connection and global code chunk options
+```{r include = TRUE, eval = FALSE}
+# load Library to execute MySQL statements from here
+library(RMySQL)
+# establish connection
+faers <- dbConnect(RMySQL::MySQL(),dbname='faers',username='root',password='Password', host='localhost',port=3306)
+
+knitr::opts_chunk$set(connection = "faers", echo = TRUE, eval = TRUE)
+```
+
+Increase buffersize in order to be able to work with big amounts of data in MySQL:
+```{sql connection = "faers"}
+SET GLOBAL innodb_buffer_pool_size=2147483648;
+```
+
+Libraries and working directory
+```{r message = FALSE, warning = FALSE, error = FALSE, eval = TRUE}
+library(tidyverse)
+library(knitr)
+
+setwd("C:/Users/domin/Desktop/Dominik/DS/Projects/P4_Signal_Detection_Covid_Vaccines")
+```
+
+## FAERS Database
+In P3 I created a MySQL database, containing Adverse Event data from the FAERS Database published by the FDA.The created database contains three tables called:\
+- general 
+- drugs 
+- reactions
+
+In P4 I did some analysis with Data concerning the three Covid-19 vaccines, that are on the Market in the US (Pfizer, Moderna and Janssen).
+
+In order to speed up the workflow I created tables for the all records related to one of these three vaccines and “nos” (not otherwise specified, meaning the product reported was “covid vaccine” or some similar term).
+These tables had been set up as follows:
+
+```{sql connection = "faers", eval = FALSE}
+--create temporary table covac_pfi_all
+--select * from drugs
+--where medicinalproduct in 
+--    (select * from covid_vac_pfi);
+```
+
+```{sql connection = "faers", eval = FALSE}
+--create table covac_pfi_d    
+--select * from covac_pfi_all
+--where drugcharacterization = 1;
+```
+
+## Exploratory Data Analysis
+
+### ADR Data
+
+The Pfizer vaccine is the Covid-19 vaccine that was administrated the most in the US.
+
+For how many reports do we have data in the drugs table for Pfizer?
+```{sql connection = "faers"}
+select count(distinct safetyreportid) from covac_pfi_d;
+```
+For how many reports do we have data in the general table for Pfizer?
+
+```{sql connection = "faers"}
+select count(distinct safetyreportid) from covac_pfi_g;
+```
+
+How many records do we have in these tables?
+```{sql connection = "faers"}
+select count(safetyreportid) from covac_pfi_d;
+```
+
+```{sql connection = "faers"}
+select count(safetyreportid) from covac_pfi_g;
+```
+
+The discrepancy in these numbers is due to the fact, that for some reports there are different versions available in the database and there is not necessarily the same number of records, per version in the two tables.
+For example if the patient had received two administrations of the vaccine, there are two records in the drugs table, while there is only one in the general table.
+
+How many cases do we have for the US?
+```{sql connection = "faers"}
+select count(distinct safetyreportid) from covac_pfi_g
+where occurcountry = "US";
+```
+
+Do we have records for all of these in the drugs table?
+```{sql connection = "faers"}
+with cases_US as
+        (select distinct safetyreportid from covac_pfi_g
+        where occurcountry = "US")
+select count(distinct safetyreportid) from covac_pfi_d
+where safetyreportid in (select * from cases_US);
+```
+Yes
+
+
+Get all the administration dates for cases with Pfizer.
+Save the result as pfi_admdates
+```{sql connection = "faers", output.var="pfi_admdates"}
+select d.safetyreportid, d.drugstartdate 
+from covac_pfi_d d join covac_pfi_g g on d.safetyreportid = g.safetyreportid
+where g.occurcountry = "US";
+```
+
+How many cases do we have over time according to the drugstartdate
+```{r out.width = "150%"}
+#remove duplicate rows
+pfi_admdates <- pfi_admdates %>% distinct(.keep_all = TRUE)
+#drop rows containing NAs
+pfi_admdates <- pfi_admdates %>% drop_na()
+#filter for records where we have a complete date
+pfi_admdates_f <- pfi_admdates %>% filter(nchar(drugstartdate) == 8)
+#convert drugstartdate to Date format
+pfi_admdates_f <- pfi_admdates_f %>% select(drugstartdate) %>% sapply(.,function(x){strptime(x, format = "%Y%m%d", tz = "UTC")}) %>% 
+    data.frame() %>% cbind(safetyreportid = pfi_admdates_f$safetyreportid, drugstartdate = .)
+#filter out cases from before marketing (those are likely due to wrong data beeing reportes;
+#but could also be cases from studies)
+pfi_admdates_f <- pfi_admdates_f %>% filter(drugstartdate >= "2020-12-14")
+
+#plot a histogram
+hist_pfi_admdates <- pfi_admdates_f  %>% ggplot(aes(x = drugstartdate)) +
+                                            geom_histogram(bins = 60) +
+                                            theme_classic() +
+                                            theme(plot.margin = margin(10,20,10,10)) +
+                                            labs(title = "Reported ADRs Over Time: Pfizer")
+    
+hist_pfi_admdates
+```
+We have lots of cases from the first half of 2021. I assume that this is because
+there where more administrations at that time. We can later compare this to data
+about administration numbers in the US.
+
+### Covid-19 Administration Data US
+
+Read in data about covid vaccines in the US (https://data.cdc.gov/Vaccinations/COVID-19-Vaccinations-in-the-United-States-Jurisdi/unsk-b7fc, accessed: 08.04.2022)
+```{r}
+covac_us <- read.csv("COVID-19_Vaccinations_in_the_United_States_Jurisdiction.csv")
+```
+We get a table with 82 variables and 31’000 records.
+
+Why is this the case? We have Data for a certain amount of dates and for different locations:
+```{r}
+str(covac_us[,c(1,3)])
+```
+There are 481 levels for Date and 66 Levels for Location:
+
+```{r}
+481*66
+```
+This would mean, that if we have the same number of entries per level, 746 records would be missing.
+
+Are there less records for any of the locations?
+```{r out.width = "150%"}
+covac_us$Location %>% data.frame() %>% ggplot(aes(.)) + 
+        geom_bar() +
+        theme_classic() +
+        theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+        labs(title = "Available Records Per Location")
+```
+Yes. i.e. for “PW”, "LTC", "RP". RP stands for "Republic of Palau" and LTC for "Long Term Care"
+
+Lets transform the Date Column to dates
+```{r}
+covac_us$Date <- covac_us$Date %>% as.Date(tryFormats = c("%m/%d/%Y")) 
+
+covac_us$Date %>% summary()
+```
+
+Look at the administration numbers of these three Locations and AK (as control, 
+since it has the "normal" amount of records in the table) 
+```{r out.width = "150%"}
+covac_us[covac_us$Location %in% c("PW", "LTC", "RP", "AK") & covac_us$Administered != 0,] %>% ggplot(aes(x = Date, y = Administered, color = Location)) + 
+        geom_point() +
+        theme_classic() +
+        theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+        scale_y_continuous(trans = "log10") +
+        scale_x_date(breaks="month") +
+        labs(title = "Available Records Over Time")
+```
+It looks like Data for LTC was no longer registered somewhere in autumn 2021.
+It also looks like the data for "RP" stops in February 2022 and "PW" "takes over" from it.
+So maybe they just changed the the shorthand name for the location.
+
+Lets see when the data for the two starts / stops and with which values for Administered:
+```{r}
+covac_us[covac_us$Location == "RP", c("Date", "Administered")] %>% summary()
+
+covac_us[covac_us$Location == "PW", c("Date", "Administered")] %>% summary()
+```
+It seems very plausible, that the shorthand was changed from RP to PW 
+(as the data starts one day after the other ends, and the values for administered are very close together)
+
+There is a Location "US" which stands for United States.
+Does this "cumulate" all the data included in the other locations?
+Look at the latest data:
+```{r}
+covac_us %>% filter(Location == "US", Date == as.Date("2022-04-07")) %>% select(Administered)
+
+covac_us %>% filter(Location != "US", Date == as.Date("2022-04-07")) %>% select(Administered) %>% sum()
+```
+No the sum of the other locations is bigger then the number for "US".
+
+```{r}
+579078678 - 563999093	
+```
+The difference is 15 Mio.
+Is ther a single Location, with this number?
+```{r, eval = FALSE}
+covac_us %>% filter(Administered == 15079585)
+```
+No (output not shown). It must be several locations that are not included under US.
+I assume it is due to some double counts, and that some of the locations listed are not part of the US.
+
+I will assume that Location = US from this data and occurcountry = US are equivalent.
+
+Continue with the Data from Location = US.
+Create a graph for number of vaccinations per product over time:
+```{r out.width = "150%"}
+#separate the data out
+covac_us_tot <- covac_us %>% filter(Location == "US")
+#transform and visualize data
+covac_us_tot %>% select(Date, Administered_Unk_Manuf, Administered_Janssen, Administered_Moderna, Administered_Pfizer) %>% 
+        pivot_longer(cols = c(Administered_Unk_Manuf, Administered_Janssen, Administered_Moderna, Administered_Pfizer)) %>%
+        ggplot(aes(x = Date, y = value, fill = name)) +
+        geom_area() +
+        theme_classic() +
+        theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+        scale_x_date(breaks="month", date_labels = "%m-%Y") +
+        scale_y_continuous(n.breaks=20) +
+        ylab("Doses administered") +
+        labs(title = "Doses Administered Over Time")
+```
+
+Calculate the administered doses per day from the cumulated data for Pfizer:
+```{r out.width = "150%"}
+#Pfizer
+covac_pfi_pd <- covac_us_tot %>% select(Administered_Pfizer) %>% sapply(., function(x){abs(diff(x))}) %>% rbind(NA, .) %>%
+    cbind(covac_us_tot[, c("Date", "Administered_Pfizer")], adm_pfi_pd = .)
+
+colnames(covac_pfi_pd) <- c("Date", "adm_pfi_cum", "adm_pfi_pd")
+#Moderna
+covac_mod_pd <- covac_us_tot %>% select(Administered_Moderna) %>% sapply(., function(x){abs(diff(x))}) %>% rbind(NA, .) %>%
+    cbind(covac_us_tot[, c("Date", "Administered_Moderna")], adm_mod_pd = .)
+
+colnames(covac_mod_pd) <- c("Date", "adm_mod_cum", "adm_mod_pd")
+#Janssen
+covac_jan_pd <- covac_us_tot %>% select(Administered_Janssen) %>% sapply(., function(x){abs(diff(x))}) %>% rbind(NA, .) %>%
+    cbind(covac_us_tot[, c("Date", "Administered_Janssen")], adm_jan_pd = .)
+
+colnames(covac_jan_pd) <- c("Date", "adm_jan_cum", "adm_jan_pd")
+#bind together
+covac_all_pd <- cbind(covac_pfi_pd[,c("Date", "adm_pfi_pd")], adm_mod_pd = covac_mod_pd$adm_mod_pd, adm_jan_pd = covac_jan_pd$adm_jan_pd)
+
+#plot
+covac_all_pd %>% pivot_longer(cols = c("adm_pfi_pd", "adm_mod_pd", "adm_jan_pd")) %>%
+    ggplot(aes(x = Date, y = value, color = name)) +
+    geom_smooth(span = 0.15, n = 100, method = 'loess', formula = y ~ x) +
+    theme_classic() +
+    ylab(label = "Administered Doses per Day") +
+    labs(color = "Product") +
+    scale_y_continuous(expand = c(0, 0), limits = c(0,2000000)) +
+    scale_x_date(breaks="month", date_labels = "%m-%Y") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+    labs(title = "Doses Administered Per Day")
+#compare to number of cases received with Pfizer
+hist_pfi_admdates
+```
+We we compare the number of administered doses of Pfizer with the received
+cases with Pfizer, we see that it has a similar shape, but is not necessarily proportional
+over the whole time.\
+During the second peak of vaccinations (End of 2021) we dont see a proportionally 
+big increase in case numbers.
+
+We can now calculate the number of reports per administered doses for different months.
+```{r out.width = "150%", message = FALSE}
+#calculate cases per month (NOTE: we use the receive administration date to group them!)
+pfi_cases_pm <- pfi_admdates_f %>% select(drugstartdate) %>% sapply(., cut.POSIXt, breaks = "month") %>% data.frame() %>% group_by(drugstartdate) %>% summarise(nr_cases_pm = length(drugstartdate))
+#calculate doses administered per month
+pfi_adm_pm <- covac_pfi_pd %>% select(Date, adm_pfi_pd) %>% drop_na() %>% mutate(Month = cut(Date, breaks = "month")) %>% group_by(Month) %>% summarise(., nr_adm_pm = sum(adm_pfi_pd))
+#combine into one data frame (NOTE: We only have ADR data until end of 2021) and calculate cases per administration
+pfi_cases_padm <- pfi_adm_pm %>% filter(as.Date(Month) < "2022-01-01") %>% cbind(., nr_cases_pm = pfi_cases_pm$nr_cases_pm) %>% mutate(., cases_padm = nr_cases_pm/nr_adm_pm)
+#plot result
+pfi_cases_padm %>% ggplot(aes(x = Month, y = cases_padm)) +
+    geom_point() +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+    ylab(label = "Reported ADRs Per Dose Administered") +
+    labs(title = "Reported ADRs Per Dose Administered Over Time: Pfizer")
+    
+```
+From this plot it looks like there was a downward trend over time for reported cases per
+dose administered for the Pfizer Vaccine.
+
+Repeat the same but with "binning" per calender week:
+```{r out.width = "150%", message = FALSE}
+#calculate cases per week (NOTE: we use the receive administration date to group them!)
+pfi_cases_pw <- pfi_admdates_f %>% select(drugstartdate) %>% sapply(., cut.POSIXt, breaks = "week") %>% data.frame() %>% group_by(drugstartdate) %>% summarise(nr_cases_pw = length(drugstartdate))
+#calculate doses administered per week
+pfi_adm_pw <- covac_pfi_pd %>% select(Date, adm_pfi_pd) %>% drop_na() %>% mutate(Week = cut(Date, breaks = "week")) %>% group_by(Week) %>% summarise(., nr_adm_pw = sum(adm_pfi_pd))
+#in which weeks where reports received?
+w_with_cases <- pfi_cases_pw %>% select(drugstartdate) %>% unique() %>% deframe()
+w_with_cases %>% str()
+#combine into one data frame (NOTE: We only have ADR data for certain weeks) and calculate cases per administration
+pfi_cases_padm_w <- pfi_adm_pw %>% filter(Week %in% w_with_cases) %>% cbind(., nr_cases_pw = pfi_cases_pw$nr_cases_pw) %>% mutate(., cases_padm_w = nr_cases_pw/nr_adm_pw)
+#reformat weeks to POSIXct
+pfi_cases_padm_w <- pfi_cases_padm_w %>% select(Week) %>% sapply(., strptime, format = "%Y-%m-%d") %>% cbind(Week = ., pfi_cases_padm_w[,2:4])
+#plot result
+pfi_cases_padm_w %>% ggplot(aes(x = Week, y = cases_padm_w)) +
+    geom_point() +
+    geom_smooth(span = 0.8, n = 53, method = 'loess', formula = y ~ x) +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+    ylab(label = "Reported ADRs Per Dose Administered") +
+    xlab(label = "Month") +
+    labs(title = "Reported ADRs Per Dose Administered Over Time: Pfizer") +
+    scale_x_datetime(breaks="month", date_labels = "%b")
+
+```
+This plot shows a general downward trend over time as well. There is a small flattening/peak 
+in summer 2021 (July/August). Maybe the second dose of the vaccine leads to more ADRs
+then the first dose. Therefore this peaks could be due to the fact that there 
+might have been more second doses administered during this time.
+
+### Influence of Dose on Number of Reports
+
+#### Administration Data US
+
+It is important to mention that the start dates in the ADR data can 
+include several doses of the vaccine, even if not all the doses did lead to ADRs.
+
+We can check the hypothesis above.
+We have a variable "Series_Complete_Pfizer", which tells us when the second 
+dose of Pfizer was received.
+```{r out.width = "150%"}
+#calculate administered 2nd doses per day and create dataframe
+covac_pfi_pd_completed <- covac_us_tot %>% select(Series_Complete_Pfizer) %>% sapply(., function(x){abs(diff(x))}) %>% rbind(NA, .) %>%
+    cbind(covac_us_tot[,c("Date", "Series_Complete_Pfizer")], adm_pfi_pd_2nd = .[,], adm_pfi_pd_tot = covac_pfi_pd$adm_pfi_pd) %>% .[,2:5]
+#calculate percentage of 2nd doses
+covac_pfi_pd_completed <- covac_pfi_pd_completed %>% mutate(., Perc_2nd = adm_pfi_pd_2nd/adm_pfi_pd_tot*100)
+
+#plot
+covac_pfi_pd_completed %>%
+    ggplot(aes(x = Date, y = Perc_2nd)) +
+    geom_smooth(span = 0.15, n = 100, method = 'loess', formula = y ~ x) +
+    geom_point() +
+    theme_classic() +
+    ylab(label = "Percentage Of 2nd Dose ") +
+    labs(color = "Product") +
+    scale_y_continuous(expand = c(0, 0), limits = c(0,100)) +
+    scale_x_date(breaks="month", date_labels = "%b") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+    labs(title = "Percentage Of 2nd Doses Administered Over Time")
+```
+There is a local minimum in July/August. This contradicts the hypothesis above.
+It seems more likely that this small increase is due to chance or other factors
+(it could also be due to media attention).
+
+It is important to note that this graph shows the percentage of second doses administered
+from all doses administered (including booster / third doses). This might explain, why the
+percentage decreases after September (which was when the US started to administer booster
+doses)
+
+However it might still be interesting to see if there are more cases with either the 
+first or the second dose of the vaccine.
+
+#### ADR Data
+
+We will try to check in the ADR data if there is a difference between the 
+number of cases reported with the first and second dose:
+```{r}
+#count records per safetyreportid => this should represent the number of doses administered, 
+#as we have already remove duplicates from this data
+tab_pfi_repid <- pfi_admdates_f %>% select(safetyreportid) %>% sapply(.,as.factor) %>% table() %>% data.frame()
+colnames(tab_pfi_repid) <- c("safetyreportid", "nr_doses")
+
+tab_pfi_repid %>% arrange(., desc(nr_doses)) %>% head()
+#we have some cases with more then 2 doses (3 or even 4)
+
+#look at records where we have 4 doses:
+pfi_admdates_f %>% filter(safetyreportid %in% c(19014662, 19654629, 19773925)) %>% arrange(safetyreportid) %>% kable()
+```
+The dates are very closely together => some of the dates might have been incorrect
+(from previous versions) and where corrected in later versions.
+
+We have to get more complete data from the data base to be able to identify duplicates
+and also to be able to assess, which dose caused an ADR.
+The output of the following querry was saved as pfi_admdates_dose:
+```{sql connection = "faers", output.var="pfi_admdates_dose"}
+select d.safetyreportid, d.safetyreportversion, d.drugstartdate, g.narrativeincludeclinical
+from covac_pfi_d d join covac_pfi_g g using (safetyreportid, safetyreportversion)
+where g.occurcountry = "US";
+```
+
+Filter out duplicates, NAs, reformat and add row that indicates how precise
+the date was reported (only month / or exact date):
+```{r}
+#remove duplicate rows
+pfi_admdates_dose <- pfi_admdates_dose %>% distinct(.keep_all = TRUE)
+#drop rows containing NAs
+pfi_admdates_dose <- pfi_admdates_dose %>% drop_na()
+#filter for records where we have a complete date
+pfi_admdates_dose_f <- pfi_admdates_dose %>% filter(nchar(drugstartdate) == 8)
+#convert drugstartdate to Date format
+pfi_admdates_dose_f <- pfi_admdates_dose_f %>% select(drugstartdate) %>% sapply(.,function(x){strptime(x, format = "%Y%m%d", tz = "UTC")}) %>% 
+    data.frame() %>% cbind(pfi_admdates_dose_f[,1:2], drugstartdate = ., case_event_date = pfi_admdates_dose_f[,c(4)])
+#filter out cases from before marketing (those are likely due to wrong data being reported;
+#but could also be cases from studies)
+pfi_admdates_dose_f <- pfi_admdates_dose_f %>% filter(drugstartdate >= "2020-12-14")
+#transform "case_event_date": get date
+pfi_admdates_dose_f <- pfi_admdates_dose_f %>% 
+    separate(col = case_event_date, into = c("a","b","c","case_event_date")) %>% 
+    select(safetyreportid, safetyreportversion, drugstartdate, case_event_date)
+#we will drop records where we know only the year, as this will not help us to 
+#distinguish which dosage led to the reported ADR
+pfi_admdates_dose_f <- pfi_admdates_dose_f %>% filter(nchar(case_event_date) > 4)
+#now we will add a marker to all records, indicating how precisely the event date was provided
+#we do this so we can then add a day (01) to the records, lacking information about the day
+#this makes it possible to convert them into dates.
+pfi_admdates_dose_m <- pfi_admdates_dose_f %>% filter(nchar(case_event_date) == 6) %>% cbind(., precision_case_event_date = rep("month", nrow(.)))
+pfi_admdates_dose_m <- pfi_admdates_dose_m %>% select(case_event_date) %>% sapply(., function(x){paste(x,"01",sep = "")}) %>% 
+    data.frame() %>% cbind(pfi_admdates_dose_m[,1:3], case_event_date = ., precision_case_event_date = pfi_admdates_dose_m[,5]) #add 01 to every date
+pfi_admdates_dose_d <- pfi_admdates_dose_f %>% filter(nchar(case_event_date) == 8) %>% cbind(., precision_case_event_date = rep("day", nrow(.)))
+
+pfi_admdates_dose_i <- rbind(pfi_admdates_dose_m, pfi_admdates_dose_d) 
+#convert case_event_date to date
+pfi_admdates_dose_i <- pfi_admdates_dose_i %>% select(case_event_date) %>% sapply(.,function(x){strptime(x, format = "%Y%m%d", tz = "UTC")}) %>% 
+    data.frame() %>% cbind(pfi_admdates_dose_i[,1:3], case_event_date = ., precision_case_event_date = pfi_admdates_dose_i[,5])
+
+pfi_admdates_dose_i %>% head() %>% kable()
+```
+For which cases do we have information about several administered doses?
+```{r}
+pfi_admdates_dose_i$id_ver <- mapply(paste, sep = "_", pfi_admdates_dose_i$safetyreportid, pfi_admdates_dose_i$safetyreportversion) %>% unlist
+
+tab_pfi_idver <- pfi_admdates_dose_i %>% select(id_ver) %>% sapply(.,as.factor) %>% table() %>% data.frame()
+colnames(tab_pfi_idver) <- c("id_ver", "nr_doses")
+
+tab_pfi_idver %>% arrange(., desc(nr_doses)) %>% head() %>% kable()
+```
+Now the maximum of records per case version is 3, which is plausible.
+
+Filter out cases with several case versions:
+```{r}
+#create a vector with the caseversions for which we have information about multiple doses
+id_ver_mult <- tab_pfi_idver %>% filter(nr_doses >= 2) %>% select(id_ver) %>% deframe()
+
+#filter for the case versions with multiple doses
+pfi_admdates_dose_mult <- pfi_admdates_dose_i %>% filter(id_ver %in% id_ver_mult)
+#filter out case versions where the event date before the marketing date of pfizer (as this must be an error in reporting)
+pfi_admdates_dose_mult <- pfi_admdates_dose_mult %>% filter(case_event_date > "2020-12-14")
+
+#for which cases do we have multiple versions in here? tabulate how many records we have per safetyreportid
+tab_pfi_case <- pfi_admdates_dose_mult %>% select(safetyreportid) %>% sapply(.,as.factor) %>% table() %>% data.frame()
+colnames(tab_pfi_case) <- c("safetyreportid", "nr_records")
+
+#the cases with several versions available have at least 4 records in this dataframe => filter those out
+case_mult <- tab_pfi_case %>% filter(nr_records >= 4) %>% select(safetyreportid) %>% deframe() %>% droplevels()
+
+#look at the records for these cases:
+pfi_admdates_dose_mult %>% filter(safetyreportid %in% case_mult) %>% arrange(id_ver) %>% kable()
+```
+For these case versions, we will drop the lower version from our data frame
+```{r}
+drop_idver <- c("18012969_7", "19014662_4", "19689873_2", "19753478_2", "19820161_3")
+pfi_admdates_dose_mult <- pfi_admdates_dose_mult %>% filter(!(id_ver %in% drop_idver))
+```
+Now we have to label which record represents which dose:
+```{r}
+#filter out the first doses and label them
+pfi_admdates_dose_mult_1 <- pfi_admdates_dose_mult %>% group_by(safetyreportid) %>% slice_min(n = 1, drugstartdate) %>% cbind(., dose_nr = rep(1, nrow(.)))
+#repeat for the second dose
+pfi_admdates_dose_mult_2 <- pfi_admdates_dose_mult %>% group_by(safetyreportid) %>% slice_min(n = 2, drugstartdate) %>% 
+    slice_max(n = 1, drugstartdate) %>% cbind(., dose_nr = rep(2, nrow(.)))
+#separate out the records, where there are three doses and label them
+id_ver_3d <- tab_pfi_idver %>% filter(nr_doses == 3) %>% select(id_ver) %>% deframe() %>% droplevels()
+pfi_admdates_dose_mult_3 <- pfi_admdates_dose_mult %>% filter(id_ver %in% id_ver_3d) %>% 
+    group_by(safetyreportid) %>% slice_max(n = 1, drugstartdate) %>% cbind(., dose_nr = rep(3, nrow(.)))
+#bind records together again
+pfi_admdates_dose_mult_l <- rbind(pfi_admdates_dose_mult_1, pfi_admdates_dose_mult_2, pfi_admdates_dose_mult_3)
+
+pfi_admdates_dose_mult_l %>% arrange(id_ver) %>% head(., n = 10) %>% kable()
+```
+The labeling of the doses seems to be correct.
+
+Now we have to identify, which dose led to the adverse event.
+
+Are there any second doses that where administered after the event?
+```{r}
+pfi_admdates_dose_mult_l %>% filter(dose_nr == 2 & drugstartdate > case_event_date & precision_case_event_date == "day") %>% 
+    head() %>% kable()
+```
+Yes => in these cases we got information about the second dose, even if it cannot have been the cause of the event.
+This means we cannot just assume the latest dose was the cause.
+
+Are there any first doses that where administered after the event?
+```{r}
+pfi_admdates_dose_mult_l %>% filter(dose_nr == 1 & drugstartdate > case_event_date & precision_case_event_date == "day") %>% 
+    head(n = 10) %>% kable()
+```
+It is remarkable here that there are many case event dates that are on first of january or the first of another month.
+I assume the exact date for these was not reported and it was entered like this into the database.
+We will first try to deal with this issue.
+
+Look at all records with event date on the first of a month:
+```{r}
+pfi_admdates_dose_mult_l %>% mutate(., day = format(case_event_date, format = "%d")) %>% filter(day == "01" & precision_case_event_date == "day") %>% arrange(safetyreportid) %>% head() %>% kable()
+```
+First we will eliminate the records that have a reported case event date 2021-01-01 and 
+drugstartdate of the first dose was after that. For these we will assume that just the year was known.
+```{r}
+drop_cases <- pfi_admdates_dose_mult_l %>% filter(case_event_date == as.Date("2021-01-01") & drugstartdate > as.Date("2021-01-01") & dose_nr == 1 & precision_case_event_date == "day") %>% 
+    select(safetyreportid) %>% deframe()
+#drop these cases
+pfi_admdates_dose_mult_l <- pfi_admdates_dose_mult_l %>% filter(!(safetyreportid %in% drop_cases))
+```
+
+Again look at all records where the event date was before the first dose.
+```{r}
+pfi_admdates_dose_mult_l %>% filter(dose_nr == 1 & drugstartdate > case_event_date & precision_case_event_date == "day") %>% kable()
+```
+We will drop the first two records as this is impossible and we cannot evaluate 
+them further and change the precision_case_event_date label  
+to month for the rest of these.
+```{r}
+pfi_admdates_dose_mult_l <- pfi_admdates_dose_mult_l %>% filter(!(safetyreportid %in% c(18896012, 19055552)))
+Prec_month <- pfi_admdates_dose_mult_l %>% filter(dose_nr == 1 & drugstartdate > case_event_date & precision_case_event_date == "day") %>% select(safetyreportid) %>% deframe()
+pfi_admdates_dose_mult_l[pfi_admdates_dose_mult_l$safetyreportid %in% Prec_month, "precision_case_event_date"] <- "month"
+```
+
+Label the dose that was probably the cause for the event. Start with the records,
+where we have the exact event date:
+```{r}
+#get the records that where likely the cause for the event (have the latest drugstartdate before the event)
+#and label them (cause = 1)
+pfi_d_cause <- pfi_admdates_dose_mult_l %>% filter(precision_case_event_date == "day") %>% 
+    mutate(., t_dos_to_event = drugstartdate - case_event_date) %>%
+    filter(t_dos_to_event <= 0) %>% 
+    group_by(safetyreportid) %>% slice_max(n = 1, t_dos_to_event) %>%
+    cbind(., cause = rep(1, nrow(.))) %>% select(!t_dos_to_event)
+#get all records where the administration was after the event and label them (cause = 0)
+pfi_d_ncause <- pfi_admdates_dose_mult_l %>% filter(precision_case_event_date == "day") %>% 
+    mutate(., t_dos_to_event = drugstartdate - case_event_date) %>%
+    filter(t_dos_to_event > 0) %>%
+    cbind(., cause = rep(0, nrow(.))) %>% select(!t_dos_to_event)
+#get a table of how many records have a drugstartdate before the event
+rec_before_event <- pfi_admdates_dose_mult_l %>% filter(precision_case_event_date == "day") %>%
+    mutate(., t_dos_to_event = drugstartdate - case_event_date) %>%
+    filter(t_dos_to_event <= 0) %>% select(safetyreportid) %>% table() %>% 
+    data.frame()
+#the cases, where there is only one record before the event have to be excluded for
+#when we will get the rest of the records, that where likely not the cause
+rec_before_event_2 <- rec_before_event %>% filter(Freq == 2) %>% select(!Freq) %>% deframe() %>% droplevels()
+rec_before_event_3 <- rec_before_event %>% filter(Freq == 3) %>% select(!Freq) %>% deframe() %>% droplevels()
+
+#where we have 2 records before event:
+#get the records where the administration was before the event but that dont have the 
+#latest drugstartdate before the event and label them (cause = 0)
+pfi_d_ncause <- pfi_admdates_dose_mult_l %>% filter(precision_case_event_date == "day" & safetyreportid %in% rec_before_event_2) %>%
+    mutate(., t_dos_to_event = drugstartdate - case_event_date) %>%
+    filter(t_dos_to_event <= 0) %>% group_by(safetyreportid) %>%
+    slice_min(n = 1, t_dos_to_event) %>%
+    cbind(., cause = rep(0, nrow(.))) %>% select(!t_dos_to_event) %>% 
+    rbind(., pfi_d_ncause)
+
+#where we have 3 records before event:
+#get the records where the administration was before the event but that dont have the 
+#latest drugstartdate before the event and label them (cause = 0)
+pfi_d_ncause <- pfi_admdates_dose_mult_l %>% filter(precision_case_event_date == "day" & safetyreportid %in% rec_before_event_3) %>%
+    mutate(., t_dos_to_event = drugstartdate - case_event_date) %>%
+    filter(t_dos_to_event <= 0) %>% group_by(safetyreportid) %>%
+    slice_min(n = 2, t_dos_to_event) %>%
+    cbind(., cause = rep(0, nrow(.))) %>% select(!t_dos_to_event) %>% 
+    rbind(., pfi_d_ncause)
+
+pfi_d <- rbind(pfi_d_ncause, pfi_d_cause) %>% unique()
+
+pfi_d %>% arrange(safetyreportid) %>% head %>% kable()
+```
+Looks like it worked.
+
+Check if every case has exactly one record, that was labelled as being likely 
+the cause for the event:
+```{r eval}
+pfi_d %>% group_by(safetyreportid) %>% summarise(sum(cause)) %>% head() %>% kable()
+```
+Yes.
+
+For the records where we only know the month of the event, we can only guess which
+dose let to the ADR, if the dosages where not both administered in the same month
+as the event occurred.
+We can calculate for each record the difference in months between the event date
+and the drugstartdate, then group the data by the safetyreportid. If the sum of 
+the differences in a group is 0 and the range is 0 as well, both of the administrations 
+happened in the same month as the event.
+```{r}
+#select these records, they will not be used further as we cannot determine,
+#which dose likely caused the ADR
+drop <- pfi_admdates_dose_mult_l %>% filter(precision_case_event_date == "month") %>% 
+    mutate(., m_event = format(case_event_date, format = "%m")) %>%
+    mutate(., m_dose = format(drugstartdate, format = "%m")) %>%
+    mutate(., dif_e_d = as.numeric(m_event) - as.numeric(m_dose)) %>%
+    group_by(safetyreportid) %>% 
+    mutate(., sum_dif_case = sum(dif_e_d), range_dif_case = max(dif_e_d)-min(dif_e_d)) %>% 
+    filter(sum_dif_case == 0 & range_dif_case == 0) %>%
+    select(safetyreportid) %>% unique() %>% deframe()
+
+#now select the rest of the records
+pfi_m_rest <- pfi_admdates_dose_mult_l %>% filter(precision_case_event_date == "month") %>% 
+    filter(!(safetyreportid %in% drop))
+```
+We can now further exclude cases where there is no dose closer then 1 month 
+to the event or there is no dose before the event (dif_e_d >= 0 & dif_e_d <=1).
+```{r eval = FALSE}
+#look at data
+pfi_m_rest %>% filter(precision_case_event_date == "month") %>% 
+    mutate(., m_event = format(case_event_date, format = "%m")) %>%
+    mutate(., m_dose = format(drugstartdate, format = "%m")) %>%
+    mutate(., dif_e_d = as.numeric(m_event) - as.numeric(m_dose)) %>%
+    select(drugstartdate, case_event_date, id_ver, dose_nr, dif_e_d) %>% arrange(safetyreportid) %>% kable()
+#select the reports to drop "by hand"
+drop <- c(18685443, 19085706, 19172078, 19226179, 19394439, 19502025, 19636783, 19718524, 19733068, 20082060, 18685443, 19394439, 19502025, 19114873)
+#drop the records
+pfi_m_rest <- pfi_m_rest %>% filter(!(safetyreportid %in% drop))
+```
+For the rest of the data we will now find and label the dose, 
+which was most likely the cause for the reported ADR.
+As we only have first and second doses here, we should label half of it (16 of 32) as likely cause.
+```{r}
+pfi_m_cause <- pfi_m_rest %>% mutate(., m_event = format(case_event_date, format = "%m")) %>%
+    mutate(., m_dose = format(drugstartdate, format = "%m")) %>%
+    mutate(., dif_e_d = as.numeric(m_event) - as.numeric(m_dose)) %>%
+    filter(dif_e_d >= 0) %>%
+    group_by(safetyreportid) %>% slice_min(n=1, dif_e_d) %>%
+    cbind(., cause = rep(1, nrow(.))) %>% select(!c(m_event, m_dose, dif_e_d))
+
+#create a vector that identifies these cases, in order to subset for the other cases
+pfi_m_cause_id <- pfi_m_cause %>% mutate(id = paste(safetyreportid, dose_nr, sep = "_")) %>%
+    select(id) %>% deframe()
+
+#find the records that where likely not the cause and label them
+pfi_m_ncause <- pfi_m_rest %>% mutate(id = paste(safetyreportid, dose_nr, sep = "_")) %>%
+    filter(!(id %in% pfi_m_cause_id)) %>%
+    cbind(., cause = rep(0, nrow(.))) %>% select(!c(id))
+
+pfi_m <- rbind(pfi_m_cause, pfi_m_ncause)
+pfi_m %>% arrange(safetyreportid) %>% head(n = 10) %>% kable()
+```
+I looked through the results and the labeling makes sense (even if we cant be 100 % sure in every case).
+
+Combine the results and plot:
+```{r out.width = "150%"}
+pfi_comb <- rbind(pfi_m, pfi_d)
+# x = Event Date
+pfi_comb %>% filter(cause == 1) %>% ggplot(aes(x = as.Date(case_event_date), fill = as.factor(dose_nr))) +
+    geom_histogram(bins = 20) +
+    theme_classic() +
+    xlab(label = "Event Date") +
+    ylab(label = "Nr. of Reports") +
+    guides(fill = guide_legend(title = "Dose that caused ADR")) +
+    labs(title = "ADRs (Event Date) Over Time Split By Dose") +
+    scale_x_date(breaks="month", date_labels = "%b")
+# x = Date of administration
+pfi_comb %>% filter(cause == 1) %>% ggplot(aes(x = as.Date(drugstartdate), fill = as.factor(dose_nr))) +
+    geom_histogram(bins = 20) +
+    theme_classic() +
+    xlab(label = "Date of Administration") +
+    ylab(label = "Nr. of Reports") +
+    guides(fill = guide_legend(title = "Dose that caused ADR")) +
+    labs(title = "Administrations Leading to ADRs Over Time Split By Dose") +
+    scale_x_date(breaks="month", date_labels = "%b")
+```
+The distributions over time are not the same for the two plots.
+This implies that the time from the administration until the event is not always the same.
+
+Plot the time from the administration to the event for all doses that where labelled
+to be likely the cause for the event and for which we have the exact days of the event:
+```{r out.width = "150%"}
+library(ggstance)
+
+pfi_comb %>% filter(precision_case_event_date == "day" & cause == 1) %>%
+    ggplot(aes(y = as.factor(safetyreportid), xmin = as.Date(drugstartdate), xmax = as.Date(case_event_date))) +
+    geom_linerangeh() +
+    scale_x_date(breaks="month", date_labels = "%b") +
+    theme_classic() +
+    theme(axis.text.y = element_text(size = 6)) +
+    xlab(label = "Date") +
+    ylab(label = "Case Number") +
+    labs(title = "Time From Administration To ADR")
+```
+We see that for some cases the time between administration and event is very long.
+Look at one of these records:
+```{r}
+pfi_comb %>% filter(safetyreportid == 20196514) %>% kable()
+```
+
+Records like these should have been excluded, as here we really cant say which dose
+caused the ADR.\
+Exclude cases where the event happened more then 30 days (= 2592000 s) after the dose (this cut off is 
+more or less arbitrary)
+```{r out.width = "150%"}
+drop <- pfi_comb %>% filter(cause == 1) %>% mutate(., t_adm_event = case_event_date - drugstartdate) %>% 
+    filter(t_adm_event > 2592000) %>% select(safetyreportid) %>% deframe()
+#drop these cases
+pfi_comb <- pfi_comb %>% filter(!(safetyreportid %in% drop))
+
+#plot again
+pfi_comb %>% filter(precision_case_event_date == "day" & cause == 1) %>%
+    ggplot(aes(y = as.factor(safetyreportid), xmin = as.Date(drugstartdate), xmax = as.Date(case_event_date))) +
+    geom_linerangeh() +
+    scale_x_date(breaks="month", date_labels = "%b") +
+    theme_classic() +
+    theme(axis.text.y = element_text(size = 6)) +
+    xlab(label = "Date") +
+    ylab(label = "Case Number") +
+    labs(title = "Time From Administration To ADR")
+    
+```
+Repeat the two plots above:
+```{r out.width = "150%"}
+# x = Event Date
+pfi_comb %>% filter(cause == 1) %>% ggplot(aes(x = as.Date(case_event_date), fill = as.factor(dose_nr))) +
+    geom_histogram(bins = 20) +
+    theme_classic() +
+    xlab(label = "Event Date") +
+    ylab(label = "Nr. of Reports") +
+    guides(fill = guide_legend(title = "Dose that caused ADR")) +
+    labs(title = "ADRs (Event Date) Over Time Split By Dose") +
+    scale_x_date(breaks="month", date_labels = "%b")
+# x = Date of administration
+pfi_comb %>% filter(cause == 1) %>% ggplot(aes(x = as.Date(drugstartdate), fill = as.factor(dose_nr))) +
+    geom_histogram(bins = 20) +
+    theme_classic() +
+    xlab(label = "Date of Administration") +
+    ylab(label = "Nr. of Reports") +
+    guides(fill = guide_legend(title = "Dose that caused ADR")) +
+    labs(title = "Administrations Leading to ADRs Over Time Split By Dose") +
+    scale_x_date(breaks="month", date_labels = "%b")
+```
+They look more similar now.
+
+What are the total number of reports per dose?
+```{r}
+pfi_comb %>% group_by(dose_nr) %>% summarise(Nr_cases = sum(cause)) %>% kable()
+```
+When we assume that the difference between the number of administrations per dose is negligible
+(meaning that not many people only got the first dose until the end of 2021) it seems that there is 
+no real difference between the amount of reports between the first and second dose.
+
+For the third dose I would not draw any conclusions from this data, as it only 
+started to be administered at the end of 2021.
+
+Lets have a look at how many doses of pfizer where administered compared to how many
+"series" where completed with pfizer (meaning the person got 2 vaccinations).
+On Sept. 20 administration of the booster started. Therefore we will look at the data
+one day before, since later the booster is also counted into the sum of administered doses.
+```{r}
+covac_us_tot %>% filter(Date == "2021-09-19") %>% select(Administered_Pfizer, Series_Complete_Pfizer) %>% kable()
+```
+We see that around 20 000 doses more then 2x Series completed, where administered.
+This would mean that 20 000 more first doses where administered until then.
+This is around 1/5. It is possible that there was still a difference at the end of 2021
+(which is the cut-off for our ADR data).
+Therefore it is possible that there are slightly more ADRs reported per dose administered
+for the second dose.
+
+## Linear Regression
+
+We will now try to find some factors that show a correlation with the number of reported 
+ADRs per dose administered (We will call this just "case per dose" for short)
+
+We will again work with the data for the Pfizer vaccine.
+
+The first question to ask is what we should choose to calculate the dependent 
+variable (the receive date or the event date?).
+We will take the event date because I assume that it is decided around the time of 
+the event, if the event will be reported or not / That the variables that influence if the
+event is reported have the biggest influence around the time the event happens.\
+This means that this measure is more suited to represent the cases
+where the event took place shortly after the administration. This is not always the case.
+Therefore some error is introduced here.
+
+We will bin the data by weeks, as otherwise we will have many values of zero for 
+case per dose.
+
+### Setting up Dataframe
+
+We will take the data used above (to explore if the dose number has an influence on
+reporting frequency) to calculate our dependent variable:
+```{r}
+pfi_admdates_dose_i %>% head() %>% kable
+```
+We only need the newest versions of the cases and the event date.
+We will add the version number to the report id, then group by the
+report id and select for the highest value of report id + version.
+Like this we can select the records from the newest version. We will
+also remove cases with impossible values.
+```{r}
+#add id for report + version
+pfi_event_dates_1 <- pfi_admdates_dose_i %>% mutate(id_ver = safetyreportid + safetyreportversion)
+#select the newest versions and drop the columns that are not needed
+pfi_event_dates_2 <- pfi_event_dates_1 %>% group_by(safetyreportid) %>% slice_max(n = 1, id_ver) %>% select(safetyreportid, drugstartdate, case_event_date, precision_case_event_date)
+
+#for the records where we only know the month we will drop all the records, where
+#the drugstartdate was more then 31 days after the event date (to get rid of cases with impossible values)
+pfi_event_dates_3m <- pfi_event_dates_2 %>% filter(precision_case_event_date == "month") %>% 
+    filter(!(drugstartdate > (as.Date(case_event_date) + 31)))
+#for the cases where the administration and the event where in the same month we will add the
+#administration date as event date (as it is probably our best guess thereof)
+pfi_event_dates_3m_1 <- pfi_event_dates_3m %>% mutate(., m_event = format(case_event_date, format = "%m")) %>%
+    mutate(., m_dose = format(drugstartdate, format = "%m")) %>%
+    mutate(., dif_e_d = as.numeric(m_event) - as.numeric(m_dose)) %>%
+    filter(dif_e_d == 0) %>% mutate(case_event_date = drugstartdate) %>% .[,1:4]
+#the rest we leave as is:
+pfi_event_dates_3m_2 <- pfi_event_dates_3m %>% mutate(., m_event = format(case_event_date, format = "%m")) %>%
+    mutate(., m_dose = format(drugstartdate, format = "%m")) %>%
+    mutate(., dif_e_d = as.numeric(m_event) - as.numeric(m_dose)) %>%
+    filter(dif_e_d != 0)
+#reunite the two groups
+pfi_event_dates_3m_u <- rbind(pfi_event_dates_3m_1, pfi_event_dates_3m_2)
+
+#remove all records where the administration date was after the event date for 
+#the records where we know the exact date
+pfi_event_dates_3d <- pfi_event_dates_2 %>% filter(precision_case_event_date == "day") %>% filter(!(drugstartdate > case_event_date))
+
+#reunite all the records:
+pfi_event_dates_4 <- rbind(pfi_event_dates_3d, pfi_event_dates_3m_u)
+
+#drop the drugstartdate column and filter for unique columns (to filter out different doses from same case)
+pfi_event_dates_5 <- pfi_event_dates_4 %>% select(safetyreportid, case_event_date) %>% unique()
+
+#display results
+pfi_event_dates_5 %>% arrange(safetyreportid) %>% head(n = 10) %>% kable()
+```
+Now we will make bins of the values per week:
+```{r out.width = "150%"}
+pfi_event_dates_6 <- pfi_event_dates_5 %>% .[,"case_event_date"] %>% deframe() %>% cut(., breaks = "week") %>% table() %>% data.frame()
+colnames(pfi_event_dates_6) <- c("Week", "count_cases")
+
+#plot the result
+pfi_event_dates_6 %>% ggplot(aes(x = as.Date(Week), y = count_cases)) +
+    geom_point() +
+    scale_x_date(breaks="week", date_labels = "%W") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+    xlab(label = "Week (Event Date)") +
+    ylab(label = "Count of Cases") +
+    labs(title = "Number of Cases per Week (Event Date)")
+```
+Now we will add information about doses administered per week (we had previously calculated
+this from the cumulated number of doses)
+```{r out.width = "150%"}
+#merge this with the data of administrations per week
+pfi_event_dates_7 <- merge(x = pfi_adm_pw, y = pfi_event_dates_6, by = "Week", all.x = T)
+#drop the records from 2022, as we dont have ADR data for those
+pfi_event_dates_7 <- pfi_event_dates_7[as.Date(pfi_event_dates_7$Week) <= "2021-12-31",]
+#replace the produced NAs in the count_cases column with 0 (we have ADR data from these
+#week and know that there where no events,that started then)
+pfi_event_dates_7[is.na(pfi_event_dates_7$count_cases) == TRUE, "count_cases"] <- 0
+
+#plot
+pfi_event_dates_7 %>% ggplot(aes(x = as.Date(Week), y = nr_adm_pw)) +
+    geom_point() +
+    scale_x_date(breaks="week", date_labels = "%W") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+    xlab(label = "Week") +
+    ylab(label = "Doses Administered per Week") +
+    labs(title = "Doses Administered over Time")
+```
+Calculate the reported events that happened per administered dose for each week.
+We will leave in count_cases, nr_adm_pw to check later if any of the independent variables show a correlation
+with one of these.
+```{r}
+pfi_event_dates_8 <- pfi_event_dates_7 %>% mutate(case_per_dose = count_cases/nr_adm_pw) %>% 
+    select(Week, case_per_dose, count_cases, nr_adm_pw)
+```
+
+Now we will convert the weeks column from factor to date and produce a plot:
+```{r out.width = "150%"}
+pfi_event_dates_9 <- pfi_event_dates_8 %>% select(Week) %>% lapply(., as.Date) %>% cbind(Week = ., pfi_event_dates_8[,2:4])
+
+#plot
+pfi_event_dates_9 %>% ggplot(aes(x = Week, y = case_per_dose)) +
+    geom_point() +
+    scale_x_date(breaks="week", date_labels = "%W") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+    xlab(label = "Week (Event Date)") +
+    ylab(label = "Reported Cases per Administered Dose") +
+    labs(title = "Number Reported Cases per Administered Dose per Week (Event Date)")
+
+```
+There seems to be a more or less linear relationship between time and reported cases
+per administered dose during the year 2021. Before (during the first few weeks of the
+vaccine campaign) the data shows huge variability (2 weeks with no cases reported, 2 weeks with
+the highest values of the whole dataset).\
+The reason for this are probably the low number of administered doses, which means, that a small
+difference in reported cases has a big impact on our measure.\
+It is also important to note that the variance seems to decrease with time (the data is
+heteroscedastic).\
+It is also possible that an exponential decay would better describe the data then a linear model.
+The argument being that reported cases per week will likely not reach 0 somewhere in 2022 (and after that negative values).
+
+Now we will add some independent variables.\
+
+Lets add series completed with pfizer per week (= second dose received):
+```{r}
+#calculate the number of series completed per day from the cumulated data
+series_compl_pd <- covac_us_tot %>% select(Series_Complete_Pfizer) %>% sapply(., function(x){abs(diff(x))}) %>% rbind(NA, .) %>%
+    cbind(covac_us_tot[,c("Date", "Series_Complete_Pfizer")], adm_pfi_pd_2nd = .[,]) %>% .[,c(2,4)]
+#bin th edata per week
+series_compl_pw <- series_compl_pd %>% mutate(Week = cut.Date(Date, breaks = "week")) %>% 
+    group_by(Week) %>% 
+    summarise(series_compl_pw = sum(adm_pfi_pd_2nd), .groups = "drop")
+#transform Week to date
+series_compl_pw <- series_compl_pw %>% select(Week) %>% 
+    lapply(., as.Date) %>% 
+    cbind(Week = ., series_compl_pw[,2])
+#add to our dataframe
+pfi_event_dates_9 <- merge(x = pfi_event_dates_9, y = series_compl_pw, by = "Week", all.x = T)
+```
+We can now calculate the percentage of second doses administered from all doses 
+administered, which could have an influence on case per dose:
+```{r out.width = "150%"}
+pfi_event_dates_9 <- pfi_event_dates_9 %>% mutate(perc_2nd_dose = series_compl_pw/nr_adm_pw*100)
+#plot over time
+pfi_event_dates_9 %>% ggplot(aes(x = Week, y = perc_2nd_dose)) +
+    geom_point() +
+    scale_x_date(breaks="week", date_labels = "%W") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5, size = 8)) +
+    xlab(label = "Week (Event Date)") +
+    ylab(label = "Proportion of 2nd Dose of All Administered Doses [%]") +
+    labs(title = "Proportion of 2nd Dose over Time")
+```
+We see that there is one impossible value of >200% in week 09. This is probably due
+to an inconsistency in the data. There is one day in this week (2021-03-04) where
+apparently 15'614'063 series where completed with Pfizer (compared to a few 100'000s
+the days before and after). The number of doses administered on this day was 1'180'432.
+So this value is clearly impossible. I assume that this number was initially not captured by the
+government and this high value served to "bring the data up to speed" / to get the
+accurate number of people, who where vaccinated twice afterwards even if the exact day of these vaccinations
+was unknown. This would also explain, why we have values of 0 before this week, which does not seem plausible,
+since vaccinations started in Dec 2020 and the second dose should be administered around 1 month after
+the first.\
+It is also important to note that on 2021-09-20 administration of "the booster" / the 3rd dose
+was started in the US. This means the third dose is also part of the total administered doses after that.\
+We see quite an abrupt drop in the value after this week. This is probably
+because the numbers of administrations of the first and second dose did not change drastically, but
+there was a strong increase in the third dose (starting from 0).\
+
+Now we will add as well some data about covid cases and covid deaths per week.
+One could speculate, that in times where there where more cases or deaths,
+there was more media attention on covid and maybe also the vaccine, which could
+have led to more cases beeing reported.
+
+Load in dataset (https://data.cdc.gov/Case-Surveillance/United-States-COVID-19-Cases-and-Deaths-by-State-o/9mfq-cb36, accessed on 14.04.2022)
+```{r}
+covid_cases_us <- read.csv(file = "United_States_COVID-19_Cases_and_Deaths_by_State_over_Time.csv")
+covid_cases_us %>% head() %>% kable()
+```
+We get data per date and per state. We will use the data from columns "new_case", and "new_death"
+and cummulate them per date to get the total value for the US.
+```{r}
+covid_cases_us_aggr_1 <- covid_cases_us %>% select(submission_date, new_case, new_death) %>% 
+    group_by(submission_date) %>%
+    summarise(new_case_US = sum(new_case), new_death_US = sum(new_death), .groups = "drop")
+```
+
+Now we will bin the numbers by weeks:
+```{r}
+#what is the format of submission_date?
+#covid_cases_us_aggr_1 %>% select(submission_date) %>% unique()
+# its %m/%d/%Y
+
+#transform submission_date to date:
+covid_cases_us_aggr_2 <- covid_cases_us_aggr_1 %>% select(submission_date) %>% 
+    lapply(., as.Date, format = "%m/%d/%Y") %>% 
+    cbind(submission_date = ., covid_cases_us_aggr_1[, 2:3])
+#bin per week
+covid_cases_us_pw <- covid_cases_us_aggr_2 %>% mutate(Week = cut.Date(submission_date, breaks = "week")) %>% 
+    group_by(Week) %>% 
+    summarise(new_case_US_pw = sum(new_case_US), new_death_US_pw = sum(new_death_US), .groups = "drop")
+#transform Week to date
+covid_cases_us_pw <- covid_cases_us_pw %>% select(Week) %>% 
+    lapply(., as.Date) %>% 
+    cbind(Week = ., covid_cases_us_pw[,2:3])
+#display
+covid_cases_us_pw %>% head(n = 10) %>% kable()
+```
+Merge this data with our dataframe:
+```{r}
+pfi_event_dates_10 <- merge(x = pfi_event_dates_9, y = covid_cases_us_pw, by = "Week", all.x = T)
+```
+
+### Matrix Plots of all Variables
+
+In order to assess which of the independent variables might show a linear relationship
+with the dependent variable, and if there are any correlations between some of the independent variables,
+we will produce a matrix of scatter plots for all the variables.
+
+```{r out.width = "150%"}
+#plot dependent and independent variables
+pairs(pfi_event_dates_10[,c(1, 2, 6, 7, 8)])
+#plot independent variables and variables from which independent variable was derived
+pairs(pfi_event_dates_10[,c(1, 3, 4, 6, 7, 8)])
+```
+Discuss the independent variables and their relationships:
+
+- Week:\
+The relationship with cases_per_dose was discussed above.
+It seems not to have a linear relationship with any of the other independent variables
+(which we would also not suspect intuitively.)
+
+- Percentage of 2nd dose:\
+As discussed before there seems to be one data point which is wrong. We will redo 
+the plot above but only for the time period after this data point (which removes all the
+0 values before this, which are probably also incorrect.)\
+```{r out.width = "150%"}
+pairs(pfi_event_dates_10[15:56,c(2, 6, 7, 8)])
+```
+It looks like there is no strong linear correlations between Percentage of 2nd dose
+and number of case reports per administered dose. There might be a negative correlations between
+Percentage of 2nd dose and new cases (There is one outlier => very high number of new cases
+for one week). With the number of deaths there seems not to be a correlation either.\
+Because after September 20 2021 also the 3rd dose was administered, I will now repeat the
+plot with the data before this. Since in this period Percentage of 2nd dose represents
+the number of 2nd doses administered vs first doses administered (afterwards it is
+number of 2nd doses administered vs first and 3rd doses administered).
+```{r out.width = "150%"}
+pairs(pfi_event_dates_10[15:41,c(2, 6, 7, 8)])
+```
+In this plot it is even more clear that there is no correlation between 
+Percentage of 2nd doses administered and number of reported cases per administered dose.
+
+- New Cases / New Deaths:\
+There does not seem to be a correlation between number of reported cases per dose with
+New Cases nor New Deaths.\
+There seems to be a correlation between New Cases and New Deaths, which is no surprise.
+
+The function GGally::ggpairs creates a scatterplot matrix including the correlation coefficient:
+```{r message=FALSE, out.width = "150%"}
+library(GGally)
+ggpairs(pfi_event_dates_10[,c(1, 2, 6, 7, 8)])
+```
+We can see here that correlation coefficient actually shows a significant correlation
+between new death and all of the other variables.\
+There is also a significant correlation between Percentage 2nd dose and 
+new cases, which might just be coincidence.\
+The plots dont really show these correlations very clearly.
+
+### Multiple Regression
+
+Looking at the scatter plots between the different variables gave us quite a good
+idea on which variables we should include in our model and what the relationship to
+the dependent variable might be. An exponential model with only the time as independent
+variable will probably make most sense. Instead of just fitting this model right away
+we will try out some other combinations in order to gain some intuition about linear
+regression.
+
+#### Model 1: Multiple Regression including all variables
+
+Fit a multiple linear regression model including all independent variables 
+and show model summary:
+```{r}
+lm1 <- pfi_event_dates_10 %>% lm(case_per_dose ~ Week + perc_2nd_dose + new_case_US_pw + new_death_US_pw, data = .)
+summary(lm1)
+```
+As could have been expected from looking at the scatter plots above, "Week" shows a significant 
+correlation with the dependent variable, while the other independent variables,
+clearly do not.\
+Overall the model is not very good (showing an adjusted R-squared value of  0.3839).\
+However the F-statistic confirms that there is at least one independent variable, that 
+correlates significantly with our dependent variable. This was to be expected, since
+the p-value for "week" would be quite unlikely to take on this value just by chance.
+
+Produce a plot for each independent variable against the dependent variable including the model fit:
+
+- Week vs. case per dose
+```{r warning=FALSE, out.width = "150%"}
+#create the scatter plot
+plot(pfi_event_dates_10$Week, pfi_event_dates_10$case_per_dose)
+#add fitted regression line
+abline(a = lm1$coefficients[[1]], b = lm1$coefficients[[2]])
+```
+Here we can clearly see one of the defects of this model: It predicts values below 0
+for cases per dose after a certain point in time. I assume that if we would fit a
+linear model including only Week as independent variable, the model would cross y = 0
+at a "later point in time" meaning the fit would produce plausible values for a longer
+time period. However the fundamental problem of using a linear model would persist.\
+
+For the other independent variables in the model, the fit is off by a lot (the y intersect is
+1.34e-04), therefore the fitted line does not appear on the plots, if we produce 
+them like we did above for Week:
+```{r out.width = "150%"}
+#create the scatter plot
+plot(pfi_event_dates_10$perc_2nd_dose, pfi_event_dates_10$case_per_dose)
+#add fitted regression line
+abline(a = lm1$coefficients[[1]], b = lm1$coefficients[[3]])
+```
+This means the fitted model does not really reflect their relationship with the
+dependent variable very well.\
+
+This observation also made me look more closely at how the Week variable is fit by the model.
+The peculiarity being that it is a date. This means that the value of 0 for date is
+a certain date that is defined as the origin.\
+Find out what is approximately the origin used in our data:
+```{r}
+pfi_event_dates_10[1, "Week"] %>% as.numeric()
+#2020-12-07 = 18603 (I assume this is the number of days since the origin)
+18603/365
+
+```
+The origin is around 51 years before the end of 2021 => in 1970\
+(1st of January 1970 is often used as origin date.)
+The y-intercept represents the extrapolated y-value of our
+model fit at the origin.
+
+Via an internet search I found the recommendation to shift the origin to a date close or within the
+time period of the observation in such a case. We will do this below.
+
+**Check the Assumptions of the Model**
+
+- Normality of Residuals:\
+
+Plot a histogram of the residuals:
+```{r out.width = "150%"}
+residuals(lm1) %>% data.frame() %>% ggplot(aes(x = .)) +
+    geom_histogram(bins = 20) +
+    xlab(label = "Value of Residual") +
+    theme_classic()
+```
+There are exceptionally high / low values for some residuals. The main part of 
+the histogram (around 0) does not look very symmetrical.\
+
+- Consistent Variance over the range of the observations:
+
+Produce a scatter plot for the fitted values vs the residuals
+```{r out.width = "150%"}
+lm1 %>% ggplot(aes(x = fitted(lm1), y = residuals(lm1))) +
+    geom_point() +
+    xlab(label = "fitted Value") +
+    ylab(label = "Value of Residual") +
+    theme_classic()
+```
+The variance clearly increases for higher fitted values. This clearly does not fullfill
+the model assumptions.
+
+We had previously already established, that there were also correlations between
+some of the independent variables, which also violates the model assumptions.\
+
+This model therefore might not show accurate results.
+
+We will now take several actions to try and improve the model.
+
+#### Model 2: Shift origin of time variable
+
+We will fit the model again, with a shifted origin for the dates of the Week variable.
+The simplest way to do so is to just replace the dates with numbers starting at 0:
+```{r}
+pfi_event_dates_11 <- cbind(Week = c(0:55), pfi_event_dates_10[, 2:8])
+```
+Repeat the model fit with this data:
+```{r}
+lm2 <- pfi_event_dates_11 %>% lm(case_per_dose ~ Week + perc_2nd_dose + new_case_US_pw + new_death_US_pw, data = .)
+summary(lm2)
+```
+We see that the adjusted R-squared nor the F statistic did change much.
+However now the y intercept can be interpreted more easily (the modeled value of cases
+per administration at the beginning of the concerned time period).
+
+Lets look again at the scatter plots including the model fit:
+
+- Week:
+```{r warning=FALSE, out.width = "150%"}
+#create the scatter plot
+plot(pfi_event_dates_11$Week, pfi_event_dates_11$case_per_dose)
+#add fitted regression line
+abline(a = lm2$coefficients[[1]], b = lm2$coefficients[[2]])
+```
+Not much changed compared to the fit of the first model.
+
+- Percentage of 2nd dose
+```{r out.width = "150%"}
+#create the scatter plot
+plot(pfi_event_dates_11$perc_2nd_dose, pfi_event_dates_11$case_per_dose)
+#add fitted regression line
+abline(a = lm2$coefficients[[1]], b = lm2$coefficients[[3]])
+```
+Now we got a model, that is more close to the actual data.
+
+#### Removing outliers
+
+We will now try to identify outliers in the data and explore what the impact
+of excluding them on the model might be.\
+We had already discussed peculiarities in our data (when looking at relationsips between two variables). 
+This gives us an idea of which data points might be outliers.\
+
+##### Cooks Distance
+
+In order to identify outliers based on several variables we can use
+the Cooks distance. It provides information about how much the fit was
+influenced by each record.
+
+Calculate Cooks Distances for the last model and plot:
+```{r out.width = "150%"}
+cooks.distance(lm2) %>% cbind(pfi_event_dates_11, Cook = .) %>%
+    ggplot(aes(x = Week, y = Cook)) +
+    geom_point() +
+    geom_text(aes(label = Week), size = 3, nudge_y = 0.02) +
+    theme_classic()
+```
+By reducing the time period for the data included in the model from week 4 to week 54
+We can exclude several points that show an extraordinarily high influence on the model.\
+As tor the point labeled with 12 I assume this is the record with the impossibly high value
+for Percentage 2nd dose.
+
+Lets look at the first four records:
+```{r}
+pfi_event_dates_11[c(1:4), c(1, 2, 6, 7, 8)] %>% kable()
+```
+The first four records have a case per dose value of either 0 or the highest two values of the whole dataset
+(more or less twice as high as the next biggest), which might explain the high Cooks distance.
+
+Look at the last records:
+```{r}
+pfi_event_dates_11[c(50:56), c(1, 2, 6, 7, 8)] %>% kable()
+```
+For the last record I am unsure of what the reason might be. It does not seem 
+that much out of the ordinary compared to the weeks before.
+
+Lets look at records around week number 12:
+```{r}
+pfi_event_dates_11[c(5:13), c(1, 2, 6, 7, 8)] %>% kable()
+```
+The high cook distance for the record of week nr. 12 was probably due to
+the high value of Percentage 2nd dose.
+We can try to correct it by just setting the value to the mean of its two neighboring
+values. We will do this in the fourth model in order to see the influence of the measures taken 
+one by one.
+
+#### Model 3: Reduce time period to remove outliers
+
+```{r}
+lm3 <- pfi_event_dates_11[5:55,] %>% lm(case_per_dose ~ Week + perc_2nd_dose + new_case_US_pw + new_death_US_pw, data = .)
+summary(lm3)
+```
+The adjusted R squared increased (from 0.3839 to 0.6515) compared to the last model.
+
+#### Model 4: Correct outlier from perc_2nd_dose
+
+Correct the outlier in Percentage 2nd dose, as discussed above.
+```{r}
+pfi_event_dates_12 <- pfi_event_dates_11
+pfi_event_dates_12[13,6] <- (pfi_event_dates_12[12,6] + pfi_event_dates_12[14,6] / 2)
+```
+
+
+Fit the model again:
+```{r}
+lm4 <- pfi_event_dates_12[5:55,] %>% lm(case_per_dose ~ Week + perc_2nd_dose + new_case_US_pw + new_death_US_pw, data = .)
+summary(lm4)
+```
+The R squared value of the model did not change much, but the P-value of Percentage 2nd dose decreased.
+
+I assume the reason for this might be, that Percentage 2nd dose does not reall help much
+in improving the fit of the model, therefore removing an outlier from it, does not
+improve the model much.\
+However, when we removed outliers from the dependent variable in the third model
+this helped improve the fit of the model.
+
+### Choosing Model via Best Subset Method
+
+We will now use the best subset method to find the best combination of variables to
+fit our Model. We will again exclude the outliers.
+
+We will use the leaps::regsubsets function to do this:
+```{r}
+library(leaps)
+#set up dataframe (excluding outliers)
+pfi_event_dates_13 <- pfi_event_dates_12[5:55, c(1, 2, 6, 7, 8)]
+#run best subsets analysis and display results
+subsets <- regsubsets(case_per_dose ~ ., data = pfi_event_dates_13 , nvmax = 4)
+sum.subsets <- summary(subsets)
+sum.subsets
+```
+The output above shows us which variables where included in the best model per
+model size (how many variables are included). We see, that Week gave the best prediction
+out of the models that utilize only one variable. This is what we would expect
+due to the scatterplots and the previously fitted models.
+
+Lets look at some of the metrics provided for the different models:
+```{r}
+cbind(adjr2 = sum.subsets$adjr2, cp = sum.subsets$cp, bic = sum.subsets$bic)
+```
+For the adjusted r squared value the highest value is to be preferred and for Cp (Mallows' Cp) 
+and BIC (Schwartz's information criterion) the lowest.\
+All measures indicate the model using
+two variables (Week and Percentage 2nd dosage) as being the best.
+
+#### Model 5: Best Model according to best subset method
+
+We will fit the Model that was found to be the best above:
+```{r}
+lm5 <- pfi_event_dates_13 %>% lm(case_per_dose ~ Week + perc_2nd_dose, data = .)
+summary(lm5)
+```
+Adjusted R squared improved slightly (as was also predicted by the regsubsets 
+function above). The Variable Percentage 2nd dose is now indicated to contribute 
+significantly to the model.
+
+**Check Model assumptions**
+
+- Normality of Residuals:\
+
+Plot a histogram of the residuals:
+```{r out.width = "150%"}
+residuals(lm5) %>% data.frame() %>% ggplot(aes(x = .)) +
+    geom_histogram(bins = 20) +
+    xlab(label = "Value of Residual") +
+    theme_classic()
+```
+The distribution looks better then when all variables
+where included and outliers not yet excluded (at least its more symmetric).
+
+- Consistent Variance over the range of the observations:
+
+Produce a scatter plot for the fitted values vs the residuals
+```{r out.width = "150%"}
+lm5 %>% ggplot(aes(x = fitted(lm5), y = residuals(lm5))) +
+    geom_point() +
+    xlab(label = "fitted Value") +
+    ylab(label = "Value of Residual") +
+    theme_classic()
+```
+This plot looks better as well then for the model we last checked it for.
+
+- Correlation between independent variables:
+
+As we had previously already found, there is no correlation between the
+two variables used to fit this model:
+```{r out.width = "150%"}
+pfi_event_dates_13 %>% ggplot(aes(x = Week, y = perc_2nd_dose)) +
+    geom_point() +
+    theme_classic()
+```
+
+### Exponential Models
+
+As previously discussed, there are problems when using a linear model, to fit
+cases per dose over time (as it will predict values < 0 after a certain point).\
+Therefore I will now try to fit the model using the natural logarithm of
+case per dose. The reason being that the relationship between the logarithm
+of a dependent variable and time is linear, if there is an exponential relationship
+between this variable and time.
+
+Plot log of case per dose vs. time and case per dose vs. time:
+```{r out.width = "150%"}
+pfi_event_dates_13 %>% ggplot(aes(x = Week, y = case_per_dose)) +
+    geom_point() +
+    theme_classic()
+
+pfi_event_dates_13 %>% ggplot(aes(x = Week, y = log(case_per_dose))) +
+    geom_point() +
+    theme_classic()
+```
+We see that if we take the logarithm of zero the result is -inf (if we approach from
+the positive side). This would lead to problems in the model fit.
+
+#### Model 6: Multiple Exponential Model
+
+We will fit a model including the two dependent variables selected before, but to
+the transforemed (by log(x)) dependent variable. We will just exclude
+the zero values for now.\
+Create dataframe with logarithm of cases per dose and records with zero value excluded:
+```{r}
+pfi_event_dates_14 <- pfi_event_dates_13 %>% mutate(log_c = log(case_per_dose)) %>% filter(log_c != -Inf)
+
+em1 <- pfi_event_dates_14 %>% lm(log_c ~ Week + perc_2nd_dose, data = .)
+summary(em1)
+```
+This decreases the adjusted R squared slightly. It is probably also not very good to just exclude these values,
+as we introduce some bias and loose some records that might have helped the model.
+
+While time and case per dose seem to have an exponential relationship. This doesnt seem to be
+the case between percentage second dose and case per dose.
+
+#### Model 7: Simple Exponential Model
+
+Does taking the logarithm improve the fit between the case per dose and time?
+```{r}
+em2 <- pfi_event_dates_14 %>% lm(case_per_dose ~ Week, data = .)
+summary(em2)
+```
+
+```{r}
+em3 <- pfi_event_dates_14 %>% lm(log_c ~ Week, data = .)
+summary(em3)
+```
+Yes the R squared value is better (0.6611 vs. 0.5718) for the model usign the 
+logarithm of the dependent variable.
+
+It is about the same as for the previous model, that used two variables.
+
+The disadvantage is that the model becomes harder to interpret, when looking at 
+the results like that. We get a model for ln(case per dose), which doesnt mean much
+like this.
+
+However we can transform the value,s to get the model for case per dose.
+
+Now our model has the following form:
+$$ln(y) = a + bx $$
+Therefore to get the model to predict y, we take the exponential funtion of both sides, to get:
+$$ y = e^{a + bx}$$
+Therefore we get our model fit as:
+$$ case\_per\_dose = e^{-12.6-0.05x} = 3.4*10^{-6}*e^{-0.05x}$$
+$3.4*10^{-6}$ represents the y intercept (at week 0) while the 0.05 in the exponent
+describes the curvature of the model.\
+NOTE: This model was fit only on data starting in week 4, since we had excluded the
+weeks before earlier. It would make more sense to set the first record as week 0.
+
+Plot the model:
+```{r out.width = "150%"}
+pfi_event_dates_14 %>% ggplot(aes(x = Week, y = case_per_dose)) +
+    geom_point()+
+    geom_function(fun = function(x) 3.3673*10^(-6)*exp(-0.0515*x)) +
+    theme_classic()
+```
+It is possible that the fit after week 40 is to high because we removed the 0 values.
+
+**check Model assumptions**
+
+- Normality of Residuals:\
+
+Plot a histogram of the residuals:
+```{r out.width = "150%"}
+residuals(em3) %>% data.frame() %>% ggplot(aes(x = .)) +
+    geom_histogram(bins = 10) +
+    xlab(label = "Value of Residual") +
+    theme_classic()
+```
+The distribution seems to be a bit right skewed. 
+
+- Consistent Variance over the range of the observations:
+
+Produce a scatter plot for the fitted values vs the residuals
+```{r out.width = "150%"}
+em3 %>% ggplot(aes(x = fitted(em3), y = residuals(em3))) +
+    geom_point() +
+    xlab(label = "fitted Value") +
+    ylab(label = "Value of Residual") +
+    theme_classic()
+```
+There is no visible tendency of more variance on one side.
+
+#### Dealing with 0s in the dependent variable
+
+Instead of just leaving out the records where case per dose is 0 we will now try
+different techniques that will allow us to leave them in.\
+We will try the following "solutions" for this problem:\
+- instead of log(x) use log(x+1)\
+- assign very small value instead of 0\
+- increase the size of the bins (from one to two/three weeks)\
+
+#### Model 8: Use log(x+1) instead of log(x)
+
+NOTE: We will include again all the data we have (meaning also the first four weeks, which we had previously excluded
+because they contained outliers, that where identified when using a multiple linear regression model)
+
+Create dataframe:
+```{r out.width = "150%"}
+pfi_event_dates_15 <- pfi_event_dates_11 %>% select(Week, case_per_dose)
+#add log(x+1*10^(-7)); I chose to add a value that is close to the smallest value in the data:
+pfi_event_dates_15 <- pfi_event_dates_15 %>% mutate(log_c1 = log(case_per_dose+1))
+#plot
+pfi_event_dates_15 %>% ggplot(aes(x = Week, y = log_c1)) +
+    geom_point() +
+    theme_classic()
+```
+
+Fit the model:
+```{r}
+em4 <- pfi_event_dates_15 %>% lm(log_c1 ~ Week, data = .)
+summary(em4)
+```
+The adjusted R-squared is low compared to the last model.
+
+Lets see if the fit improves much when we again exclude the first four weeks from the model:
+```{r}
+em5 <- pfi_event_dates_15[5:56,] %>% lm(log_c1 ~ Week, data = .)
+summary(em5)
+```
+Yes this is quite good (Adjusted R-squared: 0.64)
+
+The resulting adjusted R squared is comparable with the model where we left out
+the 0 values.
+
+**Check Model assumptions**
+
+- Normality of Residuals:\
+
+Plot a histogram of the residuals:
+```{r out.width = "150%"}
+residuals(em5) %>% data.frame() %>% ggplot(aes(x = .)) +
+    geom_histogram(bins = 10) +
+    xlab(label = "Value of Residual") +
+    theme_classic()
+```
+The distribution seems to be a bit right skewed like in the model where we omitted the zero values.
+
+We can use the Shapiro-Wilk test to test if we can exclude that the data comes from a normal distribution:
+```{r}
+shapiro.test(residuals(em5))
+```
+A p-value >0.05 means we where not able to exclude that the data comes from a norma distribution.
+
+A problem with the Shapiro-Wilk test (and also other tests of normality) is that they dont
+perform well with small (generally < 30) sample sizes. Here we have a sample size of 51, so
+thats ok.
+
+- Consistent Variance over the range of the observations:
+
+Produce a scatter plot for the fitted values vs the residuals
+```{r out.width = "150%"}
+em5 %>% ggplot(aes(x = fitted(em5), y = residuals(em5))) +
+    geom_point() +
+    xlab(label = "fitted Value") +
+    ylab(label = "Value of Residual") +
+    theme_classic()
+```
+There is less variance in the smaller fitted values. This is because we have several weeks with
+just either one or zero cases, so the only variance comes from the difference
+in dosages administered, which doesnt change drastically within a few weeks.\
+It is also important to note that also taking the logarithm of cases per dose
+doesnt "get rid" of this problem, meaning that for this period, there is also less 
+variance, when looking at it relative to the value of case per dose. 
+
+Lets look at a plot of fitted values vs. the squareroot of standardized residuals:
+```{r out.width = "150%"}
+plot(em5, 3)
+```
+The red line increases clearly to the right, telling us that there is more variability
+in higher fitted values meaning the data is heteroscedastic.\
+Therefore the model assumptions are not met here and the result of the model
+might not be reliable.
+
+#### Model 9: Assign a very small value instead of 0.
+
+Create new dataframe: (We will again exclude the first four datapoints and
+start the index for the weeks at 0)
+```{r}
+pfi_event_dates_16 <- pfi_event_dates_15[5:56, 2] %>% cbind(case_per_dose = ., Week = c(0:51)) %>% data.frame()
+```
+Replace the zeros by small values. We will try several different values to see if
+the choice of the value has an influence on the model.
+```{r}
+#1e-8
+pfi_event_dates_16 <- pfi_event_dates_16 %>% cbind(., cpd_8 = pfi_event_dates_16$case_per_dose)  
+pfi_event_dates_16[pfi_event_dates_16$cpd_8 == 0, "cpd_8"] <- 1e-8
+#1e-9
+pfi_event_dates_16 <- pfi_event_dates_16 %>% cbind(., cpd_9 = pfi_event_dates_16$case_per_dose)  
+pfi_event_dates_16[pfi_event_dates_16$cpd_9 == 0, "cpd_9"] <- 1e-9
+#1e-10
+pfi_event_dates_16 <- pfi_event_dates_16 %>% cbind(., cpd_10 = pfi_event_dates_16$case_per_dose)  
+pfi_event_dates_16[pfi_event_dates_16$cpd_10 == 0, "cpd_10"] <- 1e-10
+#calculate log
+pfi_event_dates_16 <- pfi_event_dates_16 %>% mutate(., log_8 = log(cpd_8), log_9 = log(cpd_9), log_10 = log(cpd_10))
+```
+
+Fit the models
+```{r}
+em6 <- pfi_event_dates_16 %>% lm(log_8 ~ Week, data = .)
+summary(em6)
+```
+
+```{r}
+em7 <- pfi_event_dates_16 %>% lm(log_9 ~ Week, data = .)
+summary(em7)
+```
+
+```{r}
+em8 <- pfi_event_dates_16 %>% lm(log_10 ~ Week, data = .)
+summary(em8)
+```
+We see that the adjusted R squared decreases with a decreasing "replacing value".
+
+I am unsure which would be the most reasonable choice here. It seems like the
+outcome, when using this model is quite arbitrary, depending on the choice of the
+"replacing value". Therefore I would avoid using this method.
+
+#### Model 10: Change the bin size to two weeks
+
+We will now change the size of the bins from one week to two weeks. Like this we can
+get rid of all but one zero values in our data.\
+Create the dataframe:
+```{r}
+#create indicator to distinguish odd and even rows
+odd_rows <- seq_len(nrow(pfi_event_dates_7)) %% 2
+#separate dataframe into even and odd rows
+pfi_event_dates_7_or <- pfi_event_dates_7[odd_rows == 1, ]
+pfi_event_dates_7_er <- pfi_event_dates_7[odd_rows == 0, ]
+#bind them together
+pfi_event_dates_17 <- cbind(pfi_event_dates_7_or[, c("nr_adm_pw", "count_cases")], pfi_event_dates_7_er[, c("nr_adm_pw", "count_cases")])
+colnames(pfi_event_dates_17) <- c("nr_adm_pw_o", "count_cases_o", "nr_adm_pw_e", "count_cases_e")
+#add the even and odd rows together, which gives us the totals for two subsequent weeks
+pfi_event_dates_17 <- pfi_event_dates_17 %>% transmute(nr_adm_pw = nr_adm_pw_o + nr_adm_pw_e, count_cases = count_cases_o + count_cases_e) %>% 
+    cbind(., time_index = c(0:27))
+#calculate case per dose
+pfi_event_dates_18 <- pfi_event_dates_17 %>% mutate(case_per_dose = count_cases/nr_adm_pw) %>% 
+    select(time_index, case_per_dose)
+```
+
+Plot the new data binned per two weeks:
+```{r out.width = "150%"}
+pfi_event_dates_18 %>% ggplot(aes(x = time_index, y = case_per_dose)) +
+    geom_point() +
+    theme_classic()
+```
+The records for the first four weeks still look extreme, but they might fit in
+an exponential decay curve.
+
+Drop the remaining record with a zero value and calculate log:
+```{r out.width = "150%"}
+pfi_event_dates_19 <- pfi_event_dates_18 %>% filter(case_per_dose != 0) %>% 
+    mutate(log_c = log(case_per_dose))
+
+#plot the log
+pfi_event_dates_19 %>% ggplot(aes(x = time_index, y = log_c)) +
+    geom_point() +
+    theme_classic()
+```
+Now it looks like the first four weeks blend in with the rest of the data mor or
+less.
+
+Fit the model:
+```{r}
+em9 <- pfi_event_dates_19 %>% lm(log_c ~ time_index, data = .)
+summary(em9)
+```
+This improved the model quite a bit. I think the reason for this is probably that
+by making the bin size bigger, we can get rid of some of the variance in the data,
+which is there because there are not that many cases reported, which has a similar 
+effect as having a small sample, meaning there is a lot of variation by chance.\
+A good example for this is that the data for the first 4 weeks went from being
+outliers (identified via the cooks distance) to fitting in quite well.
+The reason being that the high values of weeks 2 and 4 where "averaged together"
+with the zero values of Weeks 1 and 3 respectively.
+
+Plot the model:\
+- linear fit to log(case_per_dose)
+```{r out.width = "150%"}
+pfi_event_dates_19 %>% ggplot(aes(x = time_index, y = log_c)) +
+    geom_point()+
+    geom_function(fun = function(x) -12.29520 - 0.13315*x) +
+    theme_classic()
+```
+
+- The exponential curve to case_per_dose
+```{r out.width = "150%"}
+pfi_event_dates_19 %>% ggplot(aes(x = time_index, y = case_per_dose)) +
+    geom_point()+
+    geom_function(fun = function(x) 4.573645e-06*exp(-0.13315*x)) +
+    theme_classic()
+```
+**check Model assumptions**
+
+- Normality of Residuals:\
+
+Plot a histogram of the residuals:
+```{r out.width = "150%"}
+residuals(em9) %>% data.frame() %>% ggplot(aes(x = .)) +
+    geom_histogram(bins = 8) +
+    xlab(label = "Value of Residual") +
+    theme_classic()
+```
+Looks ok, maybe a bit left skewed.
+
+Perform Shapiro-Wilk test:
+```{r}
+shapiro.test(residuals(em9))
+```
+We cannot exclude normality of the residuals here. However, now we only have a
+sample size of 27 which is not ideal for the performance of the test.
+
+- Consistent Variance over the range of the observations:
+
+Produce a scatter plot for the fitted values vs the residuals
+```{r out.width = "150%"}
+em9 %>% ggplot(aes(x = fitted(em9), y = residuals(em9))) +
+    geom_point() +
+    xlab(label = "fitted Value") +
+    ylab(label = "Value of Residual") +
+    theme_classic()
+```
+Seems more or less consistent, maybe a bit more variance in the lower fitted values.
+
+Plot the fitted value versus the squareroot of the standardized residuals:
+```{r out.width = "150%"}
+plot(em9, 3)
+```
+The red line shows no clear tendency. Its not perfect but I dont think this violates
+the model assumptions.
+
+We can therefore more or less trust the results of this model.
+
+#### Model 11: Increasing Bin size to three Weeks 
+
+Since we are still excluding one data point, we will again try to increase the bin size
+to three weeks.
+
+Create the dataframe:
+```{r}
+#create indicator to distinguish between three weeks
+three_w <- seq_len(nrow(pfi_event_dates_7)) %% 3
+#separate dataframe into even and odd rows
+pfi_event_dates_7_1 <- pfi_event_dates_7[three_w == 1, ]
+pfi_event_dates_7_2 <- pfi_event_dates_7[three_w == 2, ]
+pfi_event_dates_7_3 <- pfi_event_dates_7[three_w == 0, ]
+#the groups contain 18, 19, 19 records => we have to drop two weeks
+#bind them together
+pfi_event_dates_20 <- cbind(pfi_event_dates_7_1[1:18, c("nr_adm_pw", "count_cases")], 
+                            pfi_event_dates_7_2[1:18, c("nr_adm_pw", "count_cases")], 
+                            pfi_event_dates_7_3[, c("nr_adm_pw", "count_cases")])
+colnames(pfi_event_dates_20) <- c("nr_adm_pw_1", "count_cases_1", "nr_adm_pw_2", "count_cases_2", "nr_adm_pw_3", "count_cases_3")
+#add rows together, which gives us the totals for three subsequent weeks
+pfi_event_dates_20 <- pfi_event_dates_20 %>% transmute(nr_adm_pw = nr_adm_pw_1 + nr_adm_pw_2 + nr_adm_pw_3, count_cases = count_cases_1 + count_cases_2 + count_cases_3) %>% 
+    cbind(., time_index = c(0:17))
+#calculate case per dose
+pfi_event_dates_20 <- pfi_event_dates_20 %>% mutate(case_per_dose = count_cases/nr_adm_pw) %>% 
+    select(time_index, case_per_dose)
+```
+
+Calculate log:
+```{r out.width = "150%"}
+pfi_event_dates_20 <- pfi_event_dates_20 %>% 
+    mutate(log_c = log(case_per_dose))
+
+#plot the log
+pfi_event_dates_20 %>% ggplot(aes(x = time_index, y = log_c)) +
+    geom_point() +
+    theme_classic()
+```
+
+```{r}
+em10 <- pfi_event_dates_20 %>% lm(log_c ~ time_index, data = .)
+summary(em10)
+```
+The adjusted r squared is a bit lower then for the model where we binned two weeks.
+This might be because we excluded some data (the last two weeks). However,
+given the choice between excluding data at the end of the period due to the number of
+weeks not being dividable by 3 or excluding data because its value is zero,
+leaving out the last two weeks is easier to justify, as it doesnt introduce any 
+bias.
+
+**Check Model Assumptions**
+
+- Normality of Residuals:\
+
+Plot a histogram of the residuals:
+```{r out.width = "150%"}
+residuals(em10) %>% data.frame() %>% ggplot(aes(x = .)) +
+    geom_histogram(bins = 8) +
+    xlab(label = "Value of Residual") +
+    theme_classic()
+```
+Looks more or less ok.
+
+Perform the Shapiro-Wilk test on the residuals:
+```{r}
+shapiro.test(residuals(em10))
+```
+We cannot exclude normality here. However with only 18 samples the performance of this
+test is probably not ideal.
+
+- Consistent Variance over the range of the observations:
+
+Produce a scatter plot for the fitted values vs the residuals
+```{r out.width = "150%"}
+em10 %>% ggplot(aes(x = fitted(em10), y = residuals(em10))) +
+    geom_point() +
+    xlab(label = "fitted Value") +
+    ylab(label = "Value of Residual") +
+    theme_classic()
+```
+There is more variance in the lower fitted values.
+
+Plot the fitted values versus the squareroot of the standardized residuals:
+```{r out.width = "150%"}
+plot(em10, 3)
+```
+There is no clear tendency overall, but the plot does not look ideal.
+
+Due to the small sample size this model was fit on it is hard to say if the model assumptions are met.
+Therefore the model with binsize of two weeks is probably "better" then this one.
+
+## Discussion
+
+### Correlation With Case Per Dose
+
+After fitting many models, the only plausible correlation with case per dose we found was 
+with time. This could be explained as follows:\
+- Public interest in the vaccines / ADRs of the vaccines,  decreased over time and therefore also the 
+number of reported events.\
+- With time health professionals knew better, which ADRs where typical for the vaccine and reported them
+less often.\
+- As the vaccines where on the market for longer, their safety profiles
+where better known and health professionals saw it as less important to report
+cases in order to improve it.\
+
+As previously discussed, the most plausible model for this relationship seems to be exponential decay, since the
+value cannot reach negative values, and the scatter plot makes this seem plausible as well.
+
+However this model is of course only valid for the period where we have data and cannot be used
+to make predictions. This becomes obvious when we consider that the number of cases 
+per dose could increase again for example due to media attention to a serious side effect of the vaccine.
+
+### Dealing With Zero Values In Exponential Models
+
+The best solution for dealing with zeros, that we used here was probably to increase the size of the bins for the
+time variable, as like this we did not "manipulate" the data in any way (as we do with the other methods).
+The problem with this is however that we reduce the number of data points for the model, which can make it
+more difficult to assess if the model assumptions are met.\
+The "sweet spot" for this data was probably a bin size of two weeks, since this
+got rid of some of the variability we had with a bin size of one week, but still
+allowed more or less to assess if the model assumptions are met.
+
+### Possible Further Investigations
+
+- We could try to fit the same kind of model for the Moderna vaccine 
+(for the Janssen vaccine we might not have enough data, as it
+was not administered as much.) in order to corroborate the results here.
+
+- We could also extend the time period. (At the time of writing the data for the first quarter of 2022
+is available)
+
+- We could replicate what we did for other territories.
+
+- It could be interesting to find other factors that might influence the reported cases
+per administered dose, such as media attention to the covid vaccine 
+(which might be hard to quantify however).
+
+### Caveats
+
+For many of the models, the model 
+assumptions where not perfectly met, therefore the results might not be very reliable.
+
+The variable we had taken to predict was calculated by dividing number of cases
+with event date per time over doses administered over time.\
+This definitely makes the most sense if cases occur quickly after the administration.
+This is however not always the case.
+
+
