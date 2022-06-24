@@ -36,7 +36,7 @@ over time (probably in an exponential decay).
 
 ## Duration:
 
-- MySQL: 0.5 h
+- MySQL: 1 h
 - R: 37 h
 - Other (writing etc.): 7 h
 
