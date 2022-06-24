@@ -5,7 +5,7 @@ The Smiles codes for these compounds where exported as well and an image of the 
 
 As the ChEMBL database did not contain that much information about products on the market etc. with the selected compounds, the database Drugs@FDA was downloaded and imported to MySQL. The data was then explored and some usefull information was exported after beeing manipulated directly in MySQL. (Table: "Drugs on US Market")
 
-At last the Labels (XML files) for products on the market containing the selected compounds where accessed on the FDA webpage where accessed using R. The text was split into different sections and exported. (Table: "FDA Labels")
+At last the Labels (XML files) for products on the market containing the selected compounds where accessed on the FDA webpage using R. The text was split into different sections and exported. (Table: "FDA Labels")
 
 A dashboard with all of the exports was created in Tableau.
 
