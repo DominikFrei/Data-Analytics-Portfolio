@@ -1,4 +1,6 @@
-# Abstract
+# P4 Quantitative Signal Detection Covid Vaccines
+
+## Abstract
 
 In this project several measures of disproportionality ($\chi^{2}$, RRR, ROR, PRR, Fishers exact test, BCPNN)
 where calculated for a selection of adverse events
